@@ -1,0 +1,17 @@
+# research artefacts (contain account/device data)
+captures/
+patch/
+apk/
+so/
+*.apk
+*.jks
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+.DS_Store
+
+# third-party reference material
+research/

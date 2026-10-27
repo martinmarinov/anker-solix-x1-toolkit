@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anker SOLIX X1 — TOU protocol RE</title>
+<style>
+  :root{
+    --ink:#0d1520; --muted:#5a6b80; --line:#e2e8f0; --bg:#f6f8fb; --card:#fff;
+    --accent:#0aa2c0; --accent-soft:#e6f7fa; --warn:#b45309; --warn-soft:#fff7ed;
+    --good:#0f766e; --good-soft:#ecfdf5; --bad:#b91c1c; --bad-soft:#fef2f2;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .page{max-width:1040px;margin:0 auto;padding:48px 24px 80px}
+  header{border-bottom:1px solid var(--line);padding-bottom:28px;margin-bottom:36px}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  h1{font-size:34px;line-height:1.15;margin:10px 0 8px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:15px;max-width:70ch}
+  .meta{margin-top:18px;display:flex;flex-wrap:wrap;gap:8px}
+  .tag{font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;
+    background:#fff;color:var(--muted)}
+  .tag b{color:var(--ink);font-weight:600}
+  h2{font-size:20px;margin:44px 0 14px;letter-spacing:-.01em}
+  h2 .n{color:var(--accent);font-variant-numeric:tabular-nums;margin-right:8px}
+  h3{font-size:15px;margin:24px 0 8px}
+  p{margin:10px 0}
+  .lead{font-size:16px}
+  .verdict{background:linear-gradient(135deg,#0b2f38,#10424e);color:#eafcff;border-radius:16px;
+    padding:26px 28px;margin:26px 0 8px;box-shadow:0 10px 30px rgba(10,50,60,.18)}
+  .verdict .k{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#7fdcec;font-weight:700}
+  .verdict p{margin:8px 0 0;font-size:17px;line-height:1.55;color:#fff}
+  .verdict .aside{font-size:14px;color:#b9e8f1;margin-top:12px}
+  .grid{display:grid;gap:14px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g2{grid-template-columns:repeat(2,1fr)}
+  @media(max-width:820px){.g3,.g2{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card .t{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);
+    font-weight:700;margin-bottom:6px}
+  .card .v{font-size:15px;font-weight:600;letter-spacing:-.01em}
+  .card .d{font-size:13.5px;color:var(--muted);margin-top:6px}
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);
+    border-radius:12px;overflow:hidden;font-size:13.5px}
+  th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+    background:#fbfcfe;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:700}
+  td{padding:10px 12px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  code{font-family:var(--mono);font-size:12.5px;background:#f1f5f9;padding:1px 5px;border-radius:4px}
+  pre{background:#0e1726;color:#d7e3f4;padding:16px 18px;border-radius:12px;overflow:auto;
+    font-family:var(--mono);font-size:12.5px;line-height:1.55;margin:12px 0}
+  pre .c{color:#7c93b3}
+  pre .s{color:#8ee0b0}
+  pre .k{color:#8fd0ff}
+  .pill{display:inline-block;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px}
+  .p-good{background:var(--good-soft);color:var(--good)}
+  .p-warn{background:var(--warn-soft);color:var(--warn)}
+  .p-bad{background:var(--bad-soft);color:var(--bad)}
+  .p-info{background:var(--accent-soft);color:#0e7490}
+  .callout{border-left:3px solid var(--accent);background:#fff;border-radius:0 12px 12px 0;
+    padding:14px 18px;margin:14px 0;font-size:14px}
+  .callout.warn{border-color:#f59e0b;background:var(--warn-soft)}
+  .callout.bad{border-color:#ef4444;background:var(--bad-soft)}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:5px 0}
+  .kick{color:var(--muted);font-size:13.5px}
+  .mono{font-family:var(--mono);font-size:12.5px}
+  footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+  .req{background:#fff;border:2px solid #0aa2c0;border-radius:16px;padding:22px 24px;margin:22px 0}
+  .req .k{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:800}
+  .req h3{margin:6px 0 10px;font-size:19px;letter-spacing:-.01em}
+  .req ol{margin:10px 0 6px;padding-left:22px}
+  .req li{margin:7px 0;font-size:14px}
+</style>
+</head>
+<body>
+<div class="page">
+
+<header>
+  <div class="eyebrow">Static reverse engineering · com.anker.charging 3.24.3</div>
+  <h1>Anker SOLIX X1: the 1-hour TOU limit is in the slider, not the protocol</h1>
+  <p class="sub">A breakdown of how the Anker app talks to the X1 over the Anker cloud, what the
+  Time-of-Use payload actually looks like, and the cheapest safe way to get a 23:30–05:30 schedule.</p>
+  <div class="meta">
+    <span class="tag"><b>Target</b> X1 / X1-H · model codes redacted</span>
+    <span class="tag"><b>Engine</b> Flutter Dart 3.11.0 AOT</span>
+    <span class="tag"><b>Transport</b> HTTPS JSON + MQTT + Modbus TCP</span>
+    <span class="tag"><b>Method</b> blutter + string-table analysis</span>
+  </div>
+</header>
+<div class="note" style="margin:16px 0">This page predates the verified write and MQTT work; see <code>REPORT.md</code> §11–17 for the proven write payload, live telemetry, encryption findings and the gadget capture method.</div>
+
+<div class="verdict">
+  <div class="k">Verdict</div>
+  <p>The app sends <code>start_time_period</code> and <code>end_time_period</code> as
+  <strong>“HH:mm” strings</strong>, and its serializer copies them into the JSON
+  <strong>verbatim</strong> — no division by 60, no rounding. The 1-hour step comes from a
+  24-tick slider in the Flutter UI. A 23:30 boundary is expressible on the wire.</p>
+  <p class="aside">Already proven in the field: a 23:30–05:30 window ran on real hardware via the
+  Dynamic Tariff path (Anker case #TNJ909651061). The inverter is half-hour capable. What remains is
+  whether the <em>Time-of-Use</em> endpoint accepts the same values — a config write with snapshot
+  and rollback, not a firmware change.</p>
+</div>
+
+
+<div class="req">
+  <div class="k">Hard requirement for the final build</div>
+  <h3>Reproduce the Time-of-Use editor — never replace the controller</h3>
+  <ol>
+    <li><b>Ride the target-driven TOU controller.</b> Write the TOU rate plan and keep the system in
+      Time of Use mode. That controller computes a rate to reach the target by the end of the valley
+      window — which is why it ramps and modulates instead of slamming to 6 kW.</li>
+    <li><b>Never use the Dynamic Tariff / window-driven scheduler.</b> No
+      <code>save_dynamic_price</code>, no <code>charging_hes_dynamic_price_svc/*</code>, no mode flip.</li>
+    <li><b>Never send a charge-power value.</b> The TOU payload has no power field; inventing one means
+      driving a different controller. Describe <em>when</em> and <em>which tariff</em>; let the EMS derive
+      <em>how fast</em>.</li>
+    <li><b>Change only the boundaries.</b> Mode, <code>price_type</code>, seasons, <code>day_type</code>,
+      <code>peak_type</code>, prices and <code>energy_unit</code> are copied verbatim. The tool's
+      <code>assert_times_only()</code> refuses anything else.</li>
+    <li><b>Mirror the screen, with 30-minute steps as the only difference:</b> same “Jan – Dec” season,
+      same Weekday/Weekend split, same period rows (type + start + end + price), same add/remove capped
+      at <b>4 periods</b>, same Save. 48 slots instead of 24.</li>
+    <li><b>If <code>:30</code> is ever rejected on the TOU path — stop.</b> Do not switch to Dynamic
+      Tariff to get granularity; that trades a UI bug for an overcurrent hazard.</li>
+  </ol>
+  <p class="kick" style="margin-top:12px"><b>Acceptance:</b> read-back differs only in the two time
+  fields · app still shows Time of Use · charge power <b>ramps</b> (first ~10 min below steady state) ·
+  grid draw stays under the configured ceiling with backup load present.</p>
+</div>
+
+<h2><span class="n">01</span>What the app actually is</h2>
+<p class="lead">There is almost no Java here. <code>base.apk</code> ships one
+<strong>13,892-byte</strong> <code>classes.dex</code>, and it is an obfuscated shell
+(<code>s.h.e.l.l.*</code>). Decompiling it is a dead end.</p>
+
+<div class="grid g3">
+  <div class="card"><div class="t">Flutter · 77.9 MB</div><div class="v">libapp.so</div>
+    <div class="d">Dart AOT snapshot. Contains the site pages, X1 settings, the TOU editor,
+    the cloud HTTP client and the MQTT client. This is the whole target.</div></div>
+  <div class="card"><div class="t">React Native · 4.6 MB</div><div class="v">plain JS bundle</div>
+    <div class="d">Portable power-station screens. Zero hits for <code>utility_rate</code>,
+    <code>peak_valley</code> or <code>start_time</code> — irrelevant to this problem.</div></div>
+  <div class="card"><div class="t">Unity IL2CPP · 67 MB</div><div class="v">libil2cpp + metadata</div>
+    <div class="d">The 3D house and energy-flow animation. Presentation only.</div></div>
+</div>
+
+<div class="callout">Symbols are <strong>not stripped</strong>: Dart file paths such as
+<code>.../&lt;model&gt;/device_setting/utility_rate_plan/...</code> survive in the snapshot. That is what
+made the payload recoverable — and why <code>blutter</code> (not <code>jadx</code>) was the right tool.</div>
+
+<h2><span class="n">02</span>The cloud protocol</h2>
+
+<table>
+  <tr><th style="width:22%">Layer</th><th>What was found</th></tr>
+  <tr><td><b>Hosts</b></td><td class="mono">ankerpower-api.anker.com · ankerpower-api-eu.anker.com<br>
+    <span class="kick">plus -qa / -qa2 / -beta / -eu-qa variants; region chosen by account country</span></td></tr>
+  <tr><td><b>Login</b></td><td><code>POST /passport/login</code> with <code>email</code>,
+    <code>ab</code> (ISO-2), <code>time_zone</code> (ms), <code>transaction</code> (unix ms) and an
+    encrypted password: ephemeral <b>P-256 ECDH</b> → <b>AES-256-CBC/PKCS7</b>, base64.</td></tr>
+  <tr><td><b>Session</b></td><td><code>auth_token</code> (~7 days, <b>no refresh</b> — re-login) and
+    <code>gtoken = md5(user_id)</code>. Headers: <code>x-auth-token</code>, <code>gtoken</code>,
+    <code>app-name: anker_power</code>, <code>country</code>, <code>timezone</code>,
+    <code>model-type: PHONE</code>, <code>os-type: android</code>.</td></tr>
+  <tr><td><b>Rate plan</b></td><td class="mono">charging_hes_svc/get_utility_rate_plan<br>
+    charging_hes_svc/update_hes_utility_rate_plan<br>
+    charging_hes_svc/save_time_of_use<br>
+    charging_hes_svc/device_command · charging_energy_service/{get,preprocess,ack}_utility_rate_plan</td></tr>
+  <tr><td><b>Realtime</b></td><td>MQTT over TLS 8883 with a <b>per-account mTLS certificate</b> from
+    <code>app/devicemanage/get_user_mqtt_info</code>. Topics
+    <code>cmd/anker_power/&lt;pn&gt;/&lt;sn&gt;/req</code> and
+    <code>dt/anker_power/&lt;pn&gt;/&lt;sn&gt;/…</code>.</td></tr>
+  <tr><td><b>Local</b></td><td><b>Modbus TCP :502</b> (and RTU), installer-gated, Ethernet required,
+    single inverter only. Official — but the published map has <em>no TOU registers</em>.</td></tr>
+</table>
+
+<div class="callout warn"><b>There is no <code>X-Api-Key</code>.</b> That header does not exist in this
+protocol; the app sends <code>x-app-key: ""</code> (empty) only on an optional encrypted-envelope path.</div>
+
+<h2><span class="n">03</span>What a Time-of-Use plan really looks like</h2>
+
+<p>Recovered from <code>peak_valley_param_data.dart</code> and the X1 device-command model. Your
+“Jan – Dec / Weekday / Super Off-Peak / Peak” screen maps 1:1 onto it:</p>
+
+<pre>{
+  <span class="k">"peak_sessions"</span>: [{
+    <span class="k">"start_time"</span>: <span class="s">"2026-01-01 00:00:00"</span>,   <span class="c">// the "Jan - Dec" season</span>
+    <span class="k">"end_time"</span>:   <span class="s">"2026-12-01 00:00:00"</span>,
+    <span class="k">"peak_valley_prices"</span>: [
+      { <span class="k">"start_time_period"</span>: <span class="s">"23:30"</span>,   <span class="c">// ← minutes live here</span>
+        <span class="k">"end_time_period"</span>:   <span class="s">"05:30"</span>,
+        <span class="k">"peak_type"</span>: 1,        <span class="c">// cheapest→dearest: 1 Super Off-Peak … 4 Peak</span>
+        <span class="k">"day_type"</span>:  1,        <span class="c">// 1 Weekday · 2 Weekend</span>
+        <span class="k">"buy"</span>: 0.10, <span class="k">"energy_unit"</span>: <span class="s">"kWh"</span> }
+    ]
+  }],
+  <span class="k">"price_unit"</span>: <span class="s">"£/kWh"</span>
+}</pre>
+
+<h3>Three independent proofs that the hour is UI-only</h3>
+<div class="grid g3">
+  <div class="card"><div class="t">Proof 1 · serializer</div><div class="v">Verbatim copy</div>
+    <div class="d"><code>PeakValleyPrices.toJson</code> loads <code>field_17</code> /
+    <code>field_1b</code> and writes them straight into the map. No arithmetic anywhere.</div></div>
+  <div class="card"><div class="t">Proof 2 · literal</div><div class="v">Quoted template</div>
+    <div class="d">The app builds <code>{"start_time":"…"</code> — a string. An hour-integer API
+    would serialise as <code>{"start_time":5</code>.</div></div>
+  <div class="card"><div class="t">Proof 3 · sentinel</div><div class="v">"23:59"</div>
+    <div class="d">End-of-day is clamped to <code>23:59</code>, not <code>24</code>. The schema
+    thinks in minutes.</div></div>
+</div>
+
+<div class="callout bad"><b>Where the hour actually comes from:</b> the custom vertical range
+slider on the “Jan – Dec” screen — 24 ticks labelled 00/06/12/18/24, always rendering <code>:00</code>.
+Adjacent localised strings include German <em>“Stunde einstellen”</em> (“set the hour”).</div>
+
+<h2><span class="n">04</span>Field evidence — and why Anker's workaround is unsafe</h2>
+
+<p>Anker support's reply to “can TOU be 30 minutes?” was: <em>use Dynamic Tariff instead</em>. That is
+a non-answer to the question, but it is a decisive data point for the reverse engineering — and it
+carries a safety finding.</p>
+
+<div class="grid g2">
+  <div class="card"><div class="t">What it proves</div><div class="v">Half-hours work on the hardware</div>
+    <div class="d">On app v3.14.0 the Dynamic Tariff feature held a <b>23:30 → 05:30</b> charge window.
+    So the cloud accepts <code>:30</code> <em>and the inverter executes it</em>. The main unknown is
+    closed: the 1-hour step belongs to one picker widget, nothing else.</div></div>
+  <div class="card"><div class="t">What it costs</div><div class="v">A real overcurrent event</div>
+    <div class="d">In that mode the X1 charged at a flat <b>6 kW</b> with no regard for the rest of the
+    supply. With ~2 kW of backup load it pulled <b>a bit over 8 kW</b> (6 kW charge + ~2 kW backup) through a <b>32 A</b> breaker
+    (≈7.4 kW) for over an hour until it tripped, taking the X1 off grid and needing a manual reset.</div></div>
+</div>
+
+<div class="callout warn"><b>The mechanism matters:</b> in <b>Time of Use / Super Off-Peak</b> the unit
+<em>modulates</em> charge power to stay within rated current regardless of backup load. Dynamic Tariff
+does not. So the goal is to change the <em>times</em> while keeping the <em>mode</em> — never to switch
+mode to obtain half-hour slots.</div>
+
+<div class="callout bad"><b>Consequences for the build:</b> (1) Dynamic Tariff is excluded on safety
+grounds, not just tariff mismatch. (2) Write the TOU rate plan and keep mode = Time of Use. (3) Set a
+<b>grid import / charge power limit below the breaker rating</b> as defence in depth — then a bad
+schedule trips a limit, not the breaker. (4) Verify the first cycle with <b>current</b>, not just
+timestamps.</div>
+
+<h2><span class="n">05</span>Can you cap charge power today?</h2>
+
+<p class="lead"><b>Yes — the controls already ship in the app.</b> This matters more than the
+30-minute feature: a hard ceiling is what makes any schedule experiment safe.</p>
+
+<div class="grid g2">
+  <div class="card"><div class="t">Where it actually is (verified on device)</div>
+    <div class="v">Settings → Modes → Advanced Options</div>
+    <div class="d"><b>Grid Charging</b> is a plain on/off switch at the bottom of the Modes page
+    (currently on), next to <b>Peak Shaving</b>. The row is not clickable — there is no detail page —
+    and <b>no kW ceiling is exposed</b> in the consumer app.</div></div>
+  <div class="card"><div class="t">What the code suggests vs. reality</div><div class="v">AE100, not X1</div>
+    <div class="d"><code>station_power_limit_model</code> (<code>ac_input_power</code>,
+    <code>legal_power_limit</code>) belongs to the AE100 / station family. For this X1,
+    <code>/site/get_power_limit</code> returns <code>data: null</code>. The ceiling must be set by the
+    installer in <i>Anker SOLIX Professional</i>.</div></div>
+</div>
+
+<div class="callout"><b>Set it before anything else.</b> Your 32 A breaker is ≈7.36 kW at 230 V.
+6 kW of charge plus ~2 kW of backup load ≈ 8 kW. A ceiling of <b>≤4.2 kW</b> — Anker's own example
+value — leaves ~3.2 kW of headroom and would have prevented the 29 Nov trip on its own.</div>
+
+<div class="callout warn"><b>Necessary, not sufficient:</b> it is not established that Dynamic Tariff
+<em>honours</em> <code>acPowerLimit</code>. Treat the ceiling as defence in depth, not as permission to
+use the unsafe mode. The new tool will read it, print it on every run, and refuse to write a schedule
+while it is missing or above a configured maximum.</div>
+
+<h2><span class="n">06</span>Why TOU paces and Dynamic Tariff slams</h2>
+
+<p>They are <b>different schedulers</b>, not one scheduler with a hidden power parameter.</p>
+
+<table>
+  <tr><th style="width:26%"></th><th>Time of Use</th><th>Dynamic Tariff</th></tr>
+  <tr><td><b>You supply</b></td><td>a price map over valley/peak windows</td><td>explicit charging windows + cutoff SOC</td></tr>
+  <tr><td><b>Controller solves</b></td><td><i>reach the target by the end of the window</i> — an energy problem</td>
+      <td><i>charge while this window is open</i> — a state problem</td></tr>
+  <tr><td><b>Resulting power</b></td><td>computed rate, ramped, modulated against house load</td>
+      <td>saturates at max immediately</td></tr>
+  <tr><td><b>Load aware</b></td><td>yes (observed)</td><td>apparently not (observed: 6 kW + 2 kW)</td></tr>
+</table>
+
+<div class="callout bad"><b>The payload proves the app isn't choosing a hidden power.</b> The X1 TOU
+object contains only times, <code>peak_type</code>, <code>day_type</code>, <code>buy</code> and
+<code>energy_unit</code> — <b>no power field exists</b>. So the pacing is computed downstream by the
+cloud EMS / firmware. It is a control law, not a parameter.</div>
+
+<div class="callout"><b>The tell is the missing ramp.</b> A target-driven controller knows how many kWh
+it needs and how long is left, so it starts gently and holds a rate. A window-driven controller has no
+reason to ramp: the window says “charge”, the cutoff says “until full”, and the only brake is a power
+ceiling. That is exactly the behaviour you observed.</div>
+
+<div class="callout warn"><b>Why this is good news for the build:</b> writing the TOU <em>plan</em> means
+we never have to reproduce a power computation — the cloud does it. Keeping mode = TOU preserves the
+pacing, and a <b>6-hour</b> window needs less average power than the 5-hour one, so it should be gentler
+still. Still unknown: whether <code>acPowerLimit</code> binds inside Dynamic Tariff, and whether the EMS
+recomputes its rate for an externally written plan (the first cycle's current measurement answers it).</div>
+
+<h2><span class="n">07</span>Options, scored</h2>
+
+<table>
+  <tr><th>Option</th><th>Effort</th><th>Risk</th><th>Odds</th><th>Verdict</th></tr>
+  <tr><td><b>Plan-writer script / tiny local page</b><br><span class="kick">reuse the app's own cloud call</span></td>
+      <td>1–3 days</td><td><span class="pill p-warn">Low–Med</span></td><td><span class="pill p-good">High</span></td>
+      <td><b>Recommended.</b> Snapshot → write → read back → rollback. No store, no signing, no re-auth loop.</td></tr>
+  <tr><td><b>Local Modbus client</b><br><span class="kick">Home Assistant / Node / Python</span></td>
+      <td>Medium</td><td><span class="pill p-good">Very low</span></td><td><span class="pill p-bad">Low for TOU</span></td>
+      <td>Official and local, but <b>no published TOU registers</b>; needs installer + Ethernet + single inverter.</td></tr>
+  <tr><td><b>Web app</b> (hosted)</td><td>Medium</td><td><span class="pill p-warn">Medium</span></td>
+      <td><span class="pill p-good">High</span></td>
+      <td>Same API plus sessions, CORS proxy, secret storage. Only if you want it from anywhere.</td></tr>
+  <tr><td><b>Android app from scratch</b></td><td>2–4 weeks</td><td><span class="pill p-warn">Medium</span></td>
+      <td><span class="pill p-warn">Medium</span></td><td>Strictly more work than the web app for the same capability.</td></tr>
+  <tr><td><b>Patch the existing APK</b></td><td>Very high</td><td><span class="pill p-bad">High</span></td>
+      <td><span class="pill p-bad">Low</span></td>
+      <td>Flutter <b>AOT</b> — no Dart source to recompile. Breaks on every release. <b>Don't.</b></td></tr>
+  <tr><td><b>Frida runtime hook</b></td><td>Medium</td><td><span class="pill p-warn">Medium</span></td>
+      <td><span class="pill p-warn">Medium</span></td><td>Rooted device only. Useful as a lab instrument to read the slider value, not a product.</td></tr>
+  <tr><td><b>Use Anker's suggested Dynamic Tariff</b><br><span class="kick">their reply to the 30-min question</span></td>
+      <td>0</td><td><span class="pill p-bad">High</span></td><td><span class="pill p-bad">Ruled out</span></td>
+      <td>Does accept 23:30 — but bypasses load-aware charge limiting, the documented cause of an
+      overcurrent breaker trip on this installation. Excluded on <b>safety</b>, not just tariff mismatch.</td></tr>
+</table>
+
+<h2><span class="n">08</span>Safety model</h2>
+
+<div class="grid g2">
+  <div class="card"><div class="t">🟢 Safe</div><div class="v">Reads</div>
+    <div class="d">Site list, device list, plan, energy stats. Do freely.</div></div>
+  <div class="card"><div class="t">🟡 Controlled</div><div class="v">Rate-plan write</div>
+    <div class="d">Snapshot first, change only the two time strings, read back, roll back on mismatch.</div></div>
+  <div class="card"><div class="t">🔴 Avoid</div><div class="v">Everything else</div>
+    <div class="d">OTA/firmware, power-cutoff, Modbus toggles, unknown <code>cmd</code> values, mode/SOC changes.</div></div>
+  <div class="card"><div class="t">Reality check</div><div class="v">Not firmware — but still electrical</div>
+    <div class="d">No bricking path: a plan is configuration. But a schedule also selects <em>how</em>
+    the unit charges, and one of those modes already tripped a 32 A breaker here. Treat charge-control
+    changes as electrical, not merely behavioural.</div></div>
+</div>
+
+<div class="callout bad"><b>Two hard rules:</b> never switch mode to Dynamic Tariff to obtain half-hour
+slots; and set a grid import / charge power limit below the breaker rating <em>before</em> the first
+experiment, so a bad schedule trips a limit rather than the breaker.</div>
+
+<div class="callout warn"><b>The other real trap:</b> <code>cmd</code>. The app uses <b>17</b>,
+<b>123</b> (HES TOU) and <b>0</b> on different paths, while the public library sends 17 everywhere.
+Never guess it — capture your app's own Save request (mitmproxy, or Frida if pinning appears) and
+replay that exact shape.</div>
+
+<h2><span class="n">09</span>Path to a 23:30–05:30 schedule</h2>
+<table>
+  <tr><th style="width:8%">Phase</th><th>Action</th><th style="width:18%">Risk</th></tr>
+  <tr><td><b>0</b></td><td>Log in, dump the live plan, confirm the field shapes and product code,
+    and <b>read the grid-charge power limit</b>. Nothing is written.</td><td><span class="pill p-good">none</span></td></tr>
+  <tr><td><b>1</b></td><td>Rewrite only valley/peak boundaries to 23:30–05:30, POST, then
+    <b>read back</b>. Mismatch ⇒ automatic restore.</td><td><span class="pill p-warn">config only</span></td></tr>
+  <tr><td><b>2</b></td><td>Watch one night — but check <b>power</b>, not only timestamps: with a
+    representative backup load, did the unit <b>ramp</b> (first ~10 min below steady state) and stay
+    under the breaker rating? Confirm the app still shows Time of Use, not Dynamic Tariff.</td>
+    <td><span class="pill p-info">observe</span></td></tr>
+  <tr><td><b>3</b></td><td>Only after 72 h of stable behaviour, wrap it in a UI or schedule it.</td>
+    <td><span class="pill p-good">low</span></td></tr>
+</table>
+
+<div class="callout"><b>Fallback if Phase 1 is rejected:</b> split the wrap into
+<code>23:30→23:59</code> + <code>00:00→05:30</code>, both Valley. That stays inside the “no wrap”
+convention at the cost of one extra row — still impossible through the stock slider.</div>
+
+<h2><span class="n">10</span>What remains unknown</h2>
+<ul>
+  <li>Whether the <b>Time-of-Use</b> endpoint accepts <code>:30</code> — same encoding as the Dynamic
+    Tariff path that already worked, but a different service. This is the remaining test.</li>
+  <li>Whether load-aware charge modulation is preserved when the plan is written by a third-party
+    client (it should be, since mode stays TOU — verify on the first cycle).</li>
+  <li>The exact <code>cmd</code> your firmware expects (17 vs 123 vs 0) — capture it.</li>
+  <li>Whether your installer can enable Modbus (Ethernet run, single inverter).</li>
+  <li>Endpoint stability across app releases — <code>param_type 9</code> was removed in Jul 2025.</li>
+</ul>
+
+<footer>
+  Full detail, evidence index and the reference client: <code>REPORT.md</code> · <code>poc/anker_tou.py</code>.
+  Anker provides no public cloud API; the only sanctioned third-party interface is local Modbus TCP.
+  Use your own credentials, don't share them, and prefer Modbus where it can do the job.
+</footer>
+
+</div>
+</body>
+</html>

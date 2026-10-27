@@ -1,0 +1,9 @@
+.git
+captures
+patch
+apk
+so
+research
+__pycache__
+*.pyc
+.DS_Store

@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anker X1 — Time-of-Use editor</title>
+<style>
+  :root{
+    --ink:#0d1520; --muted:#5b6b80; --line:#e3e8ef; --bg:#f5f7fa; --card:#fff;
+    --accent:#0aa2c0; --accent-2:#0891b2; --soft:#e6f7fa;
+    --peak:#ef4444; --mid:#f59e0b; --off:#38bdf8; --valley:#10b981;
+    --bad:#b91c1c; --bad-soft:#fef2f2; --good:#0f766e; --good-soft:#ecfdf5;
+    --warn-soft:#fffbeb; --warn:#b45309;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14.5px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif}
+  button{font:inherit;cursor:pointer;border-radius:9px;border:1px solid var(--line);
+    background:#fff;padding:8px 14px;color:var(--ink)}
+  button:hover{border-color:#c9d3df}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  button.primary:hover{background:var(--accent-2)}
+  button.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+  button.danger{color:var(--bad)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  input,select{font:inherit;padding:7px 9px;border:1px solid var(--line);border-radius:8px;
+    background:#fff;color:var(--ink)}
+  input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .wrap{max-width:960px;margin:0 auto;padding:26px 18px 70px}
+  .hide{display:none !important}
+
+  /* login */
+  .login-card{max-width:420px;margin:9vh auto 0;background:var(--card);border:1px solid var(--line);
+    border-radius:16px;padding:26px;box-shadow:0 12px 34px rgba(15,40,60,.07)}
+  .login-card h1{font-size:22px;margin:0 0 4px;letter-spacing:-.02em}
+  .login-card p{color:var(--muted);font-size:13.5px;margin:0 0 18px}
+  .field{margin:12px 0}
+  .field label{display:block;font-size:12px;font-weight:700;letter-spacing:.04em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:5px}
+  .field input,.field select{width:100%}
+  .note{font-size:12.5px;color:var(--muted);background:var(--soft);border-radius:9px;
+    padding:10px 12px;margin-top:16px}
+
+  /* shell */
+  header.top{display:flex;align-items:center;gap:12px;padding:12px 0 16px;
+    border-bottom:1px solid var(--line);margin-bottom:18px}
+  header.top .brand{font-weight:800;letter-spacing:-.02em;font-size:16px}
+  header.top .who{margin-left:auto;color:var(--muted);font-size:13px}
+  .grid{display:grid;gap:14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .card h2{font-size:15px;margin:0 0 10px;letter-spacing:-.01em}
+  .card h2 .sub{font-weight:400;color:var(--muted);font-size:12.5px;margin-left:8px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .muted{color:var(--muted)}
+  .small{font-size:12.5px}
+  .mono{font-family:var(--mono);font-size:12.5px}
+
+  /* banner */
+  .banner{display:flex;gap:12px;align-items:center;min-height:46px;border-radius:12px;
+    padding:12px 14px;font-size:13px;border:1px solid transparent}
+  .banner .muted{font-variant-numeric:tabular-nums}
+  .banner.warn{background:var(--warn-soft);border-color:#fde68a;color:#78350f}
+  .banner.bad{background:var(--bad-soft);border-color:#fecaca;color:#7f1d1d}
+  .banner.good{background:var(--good-soft);border-color:#a7f3d0;color:#065f46}
+  .banner.info{background:var(--soft);border-color:#bae6fd;color:#0c4a6e}
+
+  /* tabs */
+  .tabs{display:inline-flex;background:#eef2f6;border-radius:10px;padding:3px;gap:2px}
+  .tabs button{border:0;background:transparent;border-radius:8px;padding:6px 16px;font-weight:600;
+    color:var(--muted);font-size:13px}
+  .tabs button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+
+  /* periods */
+  table.periods{width:100%;border-collapse:collapse}
+  table.periods th{text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--muted);padding:6px 6px;font-weight:700}
+  table.periods td{padding:7px 6px;border-top:1px solid #f1f5f9}
+  .timeFixed{display:inline-block;min-width:82px;padding:7px 9px;text-align:center;
+    color:var(--muted);font-variant-numeric:tabular-nums;border:1px solid transparent}
+  .dot{width:10px;height:10px;border-radius:3px;display:inline-block;flex:0 0 auto}
+  .t-peak{background:var(--peak)} .t-mid{background:var(--mid)}
+  .t-off{background:var(--off)} .t-valley{background:var(--valley)}
+  .price{width:110px}
+  .time{width:104px}
+  .type{width:150px}
+
+  /* timeline */
+  .timeline{display:grid;grid-template-columns:repeat(48,1fr);gap:1px;margin-top:12px;
+    border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+  .timeline i{height:26px;display:block;background:#eef2f6}
+  .lab{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);
+    margin-top:4px;font-variant-numeric:tabular-nums}
+  .timeline i.tl-peak{background:var(--peak)} .timeline i.tl-mid{background:var(--mid)}
+  .timeline i.tl-off{background:var(--off)} .timeline i.tl-valley{background:var(--valley)}
+
+  /* seasons */
+  .season{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0}
+  .season + .season{border-top:1px solid #f1f5f9}
+
+  /* modal */
+  .overlay{position:fixed;inset:0;background:rgba(10,25,40,.45);display:flex;align-items:center;
+    justify-content:center;padding:18px;z-index:50}
+  .modal{background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:86vh;overflow:auto;
+    padding:22px}
+  .modal h3{margin:0 0 6px;font-size:17px}
+  .modal .diff{font-family:var(--mono);font-size:12px;background:#0e1726;color:#d7e3f4;
+    padding:12px;border-radius:10px;max-height:220px;overflow:auto;margin:12px 0}
+  .modal .diff b{color:#8ee0b0}
+  .check{display:flex;gap:9px;align-items:flex-start;font-size:13px;margin:12px 0}
+  .check input{margin-top:3px}
+  .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+  .result{white-space:pre-wrap;font-family:var(--mono);font-size:12.5px;background:#0e1726;
+    color:#d7e3f4;padding:12px;border-radius:10px;max-height:240px;overflow:auto}
+  .err{color:var(--bad);font-size:13px;margin-top:10px}
+  .spin{display:inline-block;width:11px;height:11px;border:2px solid currentColor;
+    border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;
+    vertical-align:-1px;margin-right:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .ok{color:var(--good)}
+  footer{margin-top:34px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);
+    padding-top:12px}
+  @media(max-width:640px){
+    .time,.type,.price{width:100%}
+    table.periods td{display:block;border:0;padding:3px 0}
+    table.periods th{display:none}
+  }
+
+  /* live card */
+  .live-wrap{display:grid;grid-template-columns:1fr;gap:6px}
+  .live-svg{width:100%;height:auto;display:block}
+  .live-node{font-size:12px;fill:var(--muted)}
+  .live-val{font-size:17px;font-weight:700;fill:var(--ink);font-variant-numeric:tabular-nums}
+  .live-unit{font-size:11px;fill:var(--muted)}
+  .flow{stroke-width:5;fill:none;stroke-linecap:round;opacity:.18;
+    stroke-dasharray:7 9;transition:opacity .4s}
+  .flow.on{opacity:1;animation:dash 1.1s linear infinite}
+  .flow.solar{stroke:#f59e0b}.flow.grid{stroke:#38bdf8}.flow.batt{stroke:#10b981}
+  @keyframes dash{to{stroke-dashoffset:-32}}
+  .soc-track{fill:#e8eef4}
+  .soc-fill{fill:#10b981;transition:width .5s}
+  .live-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+  .live-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+
+  /* main tabs */
+  .mainTabs{position:relative;z-index:2;margin:0 0 14px;display:flex;gap:6px;
+    background:#e9eef4;padding:5px;border-radius:14px}
+  .mainTabs button{flex:1;border:0;background:transparent;padding:10px 16px;border-radius:10px;
+    font:inherit;font-weight:600;color:var(--muted);cursor:pointer}
+  .mainTabs button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(15,23,42,.12)}
+  .homeStatus{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .homeStatus .k{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .homeStatus .v{font-weight:650;margin-top:3px}
+  @media(max-width:640px){.homeStatus{grid-template-columns:repeat(2,1fr)}}
+
+  .linkDays{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--muted);
+    cursor:pointer;user-select:none}
+  .linkDays input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- login -->
+  <section id="loginView" class="hide">
+    <div class="login-card">
+      <h1>Anker X1 — TOU editor</h1>
+      <p>Half-hour schedule editing for the SOLIX X1. Runs entirely on this machine.</p>
+      <form id="loginForm" autocomplete="on">
+        <div class="field">
+          <label for="email">Anker account email</label>
+          <input id="email" type="email" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" type="password" autocomplete="current-password" required>
+        </div>
+        <div class="field">
+          <label for="country">Country / region</label>
+          <select id="country">
+            <option value="GB">United Kingdom</option>
+            <option value="DE">Germany</option>
+            <option value="NL">Netherlands</option>
+            <option value="FR">France</option>
+            <option value="BE">Belgium</option>
+            <option value="AT">Austria</option>
+            <option value="IT">Italy</option>
+            <option value="ES">Spain</option>
+            <option value="PL">Poland</option>
+            <option value="SE">Sweden</option>
+            <option value="US">United States</option>
+            <option value="AU">Australia</option>
+          </select>
+        </div>
+        <button class="primary" type="submit" id="loginBtn" style="width:100%;margin-top:8px">
+          Sign in
+        </button>
+        <div id="loginError" class="err"></div>
+      </form>
+      <div class="note">
+        Your password is used once to obtain a session token, then discarded. The token is
+        stored encrypted (AES-GCM, local key file) so you stay signed in across
+        restarts until Anker expires it — typically about 7 days — or you sign out.
+      </div>
+    </div>
+  </section>
+
+  <!-- app -->
+  <section id="appView" class="hide">
+    <header class="top">
+      <div class="brand">Anker X1 · Time-of-Use</div>
+      <div class="who" id="who"></div>
+      <button class="ghost" id="logoutBtn">Sign out</button>
+    </header>
+
+    <div class="grid">
+      <nav class="mainTabs" id="mainTabs">
+        <button type="button" data-tab="home" class="on">Home</button>
+        <button type="button" data-tab="plan">Plan</button>
+      </nav>
+
+      <div id="netBanner" class="banner info">Connecting…</div>
+
+
+      <section class="tabPanel" id="tab-home">
+      <div class="card" id="liveCard">
+        <div class="row" style="justify-content:space-between">
+          <h2 style="margin:0">Live <span class="sub">MQTT push · ~5 s</span></h2>
+          <span id="liveAge" class="small muted">connecting…</span>
+        </div>
+        <div class="live-wrap">
+          <svg class="live-svg" viewBox="0 0 760 285" role="img" aria-label="Live energy flow">
+            <defs>
+              <marker id="arw" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+              </marker>
+            </defs>
+
+            <!-- solar -->
+            <g color="#f59e0b">
+              <circle cx="80" cy="52" r="17" fill="#fde68a"/>
+              <g stroke="#f59e0b" stroke-width="3" stroke-linecap="round">
+                <line x1="80" y1="24" x2="80" y2="31"/><line x1="80" y1="73" x2="80" y2="80"/>
+                <line x1="52" y1="52" x2="59" y2="52"/><line x1="101" y1="52" x2="108" y2="52"/>
+              </g>
+              <rect x="130" y="34" width="86" height="40" rx="5" fill="#1e3a8a"/>
+              <g stroke="#93c5fd" stroke-width="1.5">
+                <line x1="151" y1="34" x2="151" y2="74"/><line x1="172" y1="34" x2="172" y2="74"/>
+                <line x1="193" y1="34" x2="193" y2="74"/><line x1="130" y1="54" x2="216" y2="54"/>
+              </g>
+              <text class="live-node" x="128" y="96">Solar</text>
+              <text class="live-val" x="128" y="117" id="vSolar">—</text>
+              <text class="live-unit" x="205" y="117">kW</text>
+            </g>
+
+            <!-- grid -->
+            <g color="#38bdf8">
+              <g stroke="#38bdf8" stroke-width="3" stroke-linecap="round" fill="none">
+                <line x1="640" y1="28" x2="640" y2="92"/>
+                <line x1="612" y1="52" x2="668" y2="52"/><line x1="618" y1="72" x2="662" y2="72"/>
+                <path d="M612 52 L640 34 L668 52"/><path d="M618 72 L640 58 L662 72"/>
+              </g>
+              <text class="live-node" x="596" y="112">Grid</text>
+              <text class="live-val" x="596" y="133" id="vGrid">—</text>
+              <text class="live-unit" x="673" y="133">kW</text>
+            </g>
+
+            <!-- battery -->
+            <g color="#10b981">
+              <rect x="600" y="178" width="80" height="42" rx="6" fill="none" stroke="#10b981" stroke-width="3"/>
+              <rect x="682" y="190" width="7" height="18" rx="2" fill="#10b981"/>
+              <rect class="soc-track" x="606" y="184" width="68" height="10" rx="3"/>
+              <rect class="soc-fill" id="socBar" x="606" y="184" width="0" height="10" rx="3"/>
+              <text class="live-node" x="600" y="243">Battery</text>
+              <text class="live-val" x="600" y="264" id="vBatt">—</text>
+              <text class="live-unit" x="677" y="264">kW</text>
+              <text class="live-node" x="690" y="200" id="socVal">—</text>
+            </g>
+
+            <!-- house -->
+            <g>
+              <polygon points="292,118 380,52 468,118" fill="#e2e8f0" stroke="#94a3b8" stroke-width="2"/>
+              <rect x="310" y="118" width="140" height="112" rx="4" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+              <text class="live-node" x="336" y="160">Home</text>
+              <text class="live-val" x="336" y="183" id="vHome">—</text>
+              <text class="live-unit" x="428" y="183">kW</text>
+            </g>
+
+            <!-- flows -->
+            <path class="flow solar" id="fSolar" d="M214 54 L310 96"/>
+            <path class="flow grid"  id="fGrid"  d="M640 96 L470 120"/>
+            <path class="flow batt"  id="fBatt"  d="M600 199 L452 190"/>
+          </svg>
+          <div class="live-legend">
+            <span><i class="live-dot" style="background:#f59e0b"></i>Solar</span>
+            <span><i class="live-dot" style="background:#38bdf8"></i>Grid</span>
+            <span><i class="live-dot" style="background:#10b981"></i>Battery</span>
+            <span id="liveMode"></span>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="homeStatus">
+        <div class="homeStatus">
+          <div><div class="k">Site</div><div class="v" id="homeSite">—</div></div>
+          <div><div class="k">Main inverter</div><div class="v" id="homeDevice">—</div></div>
+          <div><div class="k">Mode</div><div class="v">Time of Use</div></div>
+          <div><div class="k">Battery</div><div class="v" id="homeSoc">—</div></div>
+        </div>
+      </div>
+      </section>
+
+      <section class="tabPanel hide" id="tab-plan">
+      <div class="card">
+        <div class="row" style="justify-content:space-between">
+          <h2 style="margin:0">Plan <span class="sub" id="planMeta"></span></h2>
+          <div class="row">
+            <select id="siteSel" class="hide" title="Site"></select>
+            <span id="deviceLabel" class="small muted"></span>
+            <select id="deviceSel" class="hide" title="Main inverter"></select>
+            <button id="reloadBtn">Reload</button>
+          </div>
+        </div>
+
+        <div id="deviceNote" class="small muted" style="margin-top:8px"></div>
+
+        <div style="margin-top:14px">
+          <div class="small muted" style="margin-bottom:6px">Seasons</div>
+          <div id="seasons"></div>
+        </div>
+
+        <div class="row" style="margin-top:18px;justify-content:space-between">
+          <div class="tabs" id="dayTabs">
+            <button data-day="1" class="on">Weekday</button>
+            <button data-day="2">Weekend</button>
+          </div>
+          <label class="linkDays" title="When on, edits apply to weekdays and weekends together">
+            <input type="checkbox" id="linkDays" checked>
+            <span>Apply to both days</span>
+          </label>
+          <div class="small muted" id="periodCount"></div>
+        </div>
+
+        <table class="periods" style="margin-top:8px">
+          <thead>
+            <tr><th style="width:26px"></th><th>Tariff</th><th>Start</th><th>End</th>
+                <th>Buy £/kWh</th><th>Sell £/kWh</th><th></th></tr>
+          </thead>
+          <tbody id="periodRows"></tbody>
+        </table>
+
+        <div class="small muted" style="margin-top:6px">
+          Prices are stored to <b>two decimals</b> by Anker (0.0762 → 0.07). Leave them
+          untouched to keep the current values; editing a price truncates it to two decimals.
+          Periods always cover <b>00:00–24:00</b>; a wrap like 23:30–05:30 is split into
+          00:00–05:30 and 23:30–24:00 automatically. Each tariff has a <b>single price</b> —
+          editing any Super Off-Peak price updates every Super Off-Peak period. Buy and sell
+          prices are independent, each with one value per tariff.
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <button id="addPeriod">+ Add period</button>
+          <span class="small muted">30-minute steps · max 4 periods per day type</span>
+        </div>
+
+        <div class="timeline" id="timeline"></div>
+        <div class="lab"><span>00:00</span><span>06:00</span><span>12:00</span>
+          <span>18:00</span><span>23:30</span></div>
+      </div>
+
+      <div class="card">
+        <h2>Changes <span class="sub">30-minute precision</span></h2>
+        <div class="banner good" style="margin-bottom:10px">
+          <b>Write path verified.</b> Saves go through
+          <code>charging_hes_svc/device_command</code> — the same call the Android app makes —
+          and persist minute-level boundaries. Every write is snapshotted, read back, and rolled
+          back automatically on mismatch.
+        </div>
+        <div id="diffSummary" class="small muted">No changes yet.</div>
+        <div class="row" style="margin-top:14px">
+          <button class="primary" id="saveBtn" disabled>Review &amp; save</button>
+          <button id="discardBtn" disabled>Discard changes</button>
+        </div>
+        <div id="saveStatus" class="small" style="margin-top:10px"></div>
+      </div>
+
+      <details class="card" id="diagCard">
+        <summary class="small muted" style="cursor:pointer">Diagnostics</summary>
+        <div class="row" style="margin:10px 0">
+          <button id="diagBtn">Refresh</button>
+          <span class="small muted">Redacted request log — no tokens or bodies.</span>
+        </div>
+        <div id="diagBody" class="result">Not loaded.</div>
+      </details>
+
+      <div id="resultCard" class="card hide">
+        <h2>Result</h2>
+        <div id="resultBody" class="result"></div>
+      </div>
+      </section>
+    </div>
+
+    <footer>
+      This tool changes the schedule only. It never switches mode, never uses the Dynamic
+      Tariff scheduler, and never sends a charge-power value. Every write is read back and
+      rolled back automatically if the cloud stores something different.
+    </footer>
+  </section>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
