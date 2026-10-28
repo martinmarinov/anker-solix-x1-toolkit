@@ -29,6 +29,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from live import LiveFeed
+from home_view import build_home_view
 from anker_client import (  # noqa: E402
     AnkerClient, AnkerError, assert_plan_only, dumps, now_stamp, plan_diff, site_id_of,
 )
@@ -71,6 +72,23 @@ DIAG: deque = deque(maxlen=60)
 # --------------------------------------------------------------------------
 # helpers
 # --------------------------------------------------------------------------
+
+def stop_live_feeds(sess: dict | None) -> None:
+    """Stop every MQTT feed held by a session (one feed per site+inverter)."""
+    if not isinstance(sess, dict):
+        return
+    live = sess.get("live")
+    if not live:
+        return
+    feeds = list(live.values()) if isinstance(live, dict) else [live]
+    for feed in feeds:
+        try:
+            feed.stop()
+        except Exception:
+            pass
+    if isinstance(live, dict):
+        live.clear()
+
 
 def log(msg: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S")
@@ -540,8 +558,7 @@ class Handler(BaseHTTPRequestHandler):
                 return None
             if s["expires"] < time.time():
                 SESSIONS.pop(sid, None)
-                if s.get("live"):
-                    s["live"].stop()
+                stop_live_feeds(s)
                 return None
             s["expires"] = time.time() + SESSION_TTL
             return s
@@ -551,8 +568,7 @@ class Handler(BaseHTTPRequestHandler):
         if sid:
             with SESSIONS_LOCK:
                 sess = SESSIONS.pop(sid, None)
-            if sess and sess.get("live"):
-                sess["live"].stop()
+            stop_live_feeds(sess)
         clear_persisted()
 
     def require_session(self) -> dict | None:
@@ -659,7 +675,9 @@ class Handler(BaseHTTPRequestHandler):
         if not os.path.isfile(path):
             return self.fail(404, "Not found.")
         ctype = {"html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8",
-                 "css": "text/css; charset=utf-8", "svg": "image/svg+xml"}.get(
+                 "css": "text/css; charset=utf-8", "svg": "image/svg+xml",
+                 "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                 "webp": "image/webp", "avif": "image/avif"}.get(
                      safe.rsplit(".", 1)[-1], "application/octet-stream")
         with open(path, "rb") as fh:
             self._send(200, fh.read(), ctype)
@@ -716,16 +734,17 @@ class Handler(BaseHTTPRequestHandler):
                   extra={"Set-Cookie": cookie, "X-Session-Persisted": str(CONFIG['persist']).lower()})
 
     def site_view(self, s: dict) -> dict:
+        tz = s.get("timezone") or s.get("time_zone") or s.get("tz") or ""
         return {"id": site_id_of(s),
-                "name": s.get("site_name") or s.get("name") or s.get("siteName") or "Site"}
+                "name": s.get("site_name") or s.get("name") or s.get("siteName") or "Site",
+                "timezone": tz if isinstance(tz, str) else ""}
 
     def api_logout(self):
         sid = self.cookie_sid()
         if sid:
             with SESSIONS_LOCK:
                 sess = SESSIONS.pop(sid, None)
-            if sess and sess.get("live"):
-                sess["live"].stop()
+            stop_live_feeds(sess)
         clear_persisted()
         self.json(200, {"ok": True}, extra={"Set-Cookie": f"{COOKIE}=; Path=/; Max-Age=0"})
 
@@ -761,34 +780,89 @@ class Handler(BaseHTTPRequestHandler):
                         "source": getattr(s["client"], "last_source", "none"),
                         "probe": getattr(s["client"], "last_probe", [])})
 
-    def _session_live(self, sess):
-        live = sess.get("live")
-        if live:
-            return live
-        site = ((sess.get("sites") or [{}])[0]).get("id")
+    def _session_live(self, sess, site=None, sn=None):
+        """Return (feed, site id, inverter sn), starting it lazily.
+
+        Sessions can hold more than one feed (multi-site accounts), keyed by
+        site+inverter. The old single-feed behaviour always used sites[0] and
+        ignored the site the user had selected in the UI.
+        """
+        sites = sess.get("sites") or []
+        site = site or (sites[0].get("id") if sites else None)
         if not site:
             raise AnkerError("No site available for live telemetry.", kind="validation")
+
+        lock = sess.setdefault("lock", threading.Lock())
+        with lock:
+            feeds = sess.setdefault("live", {})
+            if not isinstance(feeds, dict):
+                # Defensive: a session restored by an older build may hold one feed.
+                try:
+                    feeds.stop()
+                except Exception:
+                    pass
+                feeds = sess["live"] = {}
+
+            # A site+sn key is enough to reuse an existing feed. When sn is not
+            # supplied, resolve the first inverter below.
+            if sn:
+                existing = feeds.get(f"{site}:{sn}")
+                if existing:
+                    return existing, site, sn
+
         devices = sess["client"].devices(site) or []
         inverters = [d for d in devices if d.get("role") == "inverter"]
         if not inverters:
             raise AnkerError("No inverter found on this site.", kind="validation")
-        main = inverters[0]
-        live = LiveFeed(sess["client"], main.get("code") or "device", main.get("sn"))
-        sess["live"] = live
-        live.start()
-        return live
+        main = next((d for d in inverters if sn and d.get("sn") == sn), inverters[0])
+        chosen_sn = main.get("sn")
+        if not chosen_sn:
+            raise AnkerError("The inverter has no serial number.", kind="validation")
+        key = f"{site}:{chosen_sn}"
+
+        with lock:
+            existing = feeds.get(key)
+            if existing:
+                return existing, site, chosen_sn
+
+            # Keep a bounded number of sockets for accounts with many sites.
+            while len(feeds) >= 4:
+                old_key, oldest = next(iter(feeds.items()))
+                feeds.pop(old_key, None)
+                try:
+                    oldest.stop()
+                except Exception:
+                    pass
+            live = LiveFeed(sess["client"], main.get("code") or "device", chosen_sn)
+            feeds[key] = live
+            live.start()
+            return live, site, chosen_sn
+
+    def _site_timezone(self, sess, site):
+        for item in sess.get("sites") or []:
+            if item.get("id") == site:
+                tz = item.get("timezone") or ""
+                return tz if isinstance(tz, str) else ""
+        return ""
 
     def api_live(self):
         s = self.require_session()
         if not s:
             return
+        q = parse_qs(urlparse(self.path).query)
+        site = (q.get("site") or [None])[0] or None
+        sn = (q.get("sn") or [None])[0] or None
         try:
-            live = self._session_live(s)
+            live, site, sn = self._session_live(s, site, sn)
         except AnkerError as e:
             if e.kind == "auth":
                 self.drop_session()
             return self.fail(self.status_for(e), e.message, e.kind)
-        self.json(200, {"ok": True, "live": live.get()})
+        snap = live.get()
+        view = build_home_view(snap)
+        self.json(200, {"ok": True, "site": site, "sn": sn,
+                        "timezone": self._site_timezone(s, site),
+                        "live": snap, "view": view})
 
     def api_limits(self, q):
         s = self.require_session()

@@ -1,17 +1,24 @@
-# Anker SOLIX X1 — Time-of-Use editor + live monitor
+# Anker SOLIX X1 — wall dashboard + Time-of-Use editor
 
-A self-hosted web app that edits the X1 **Time of Use** plan at **whole-hour** granularity and
-shows a live energy-flow card. It talks to Anker's cloud with **your own account**; nothing
-about a particular user, site or device is baked in.
+A self-hosted web app built for a small landscape display on a wall. The Home view is a
+full-screen, dark live-energy dashboard; the **Plan editor** is an always-visible burger
+button away. It talks to Anker's cloud with **your own account**; nothing about a particular
+user, site or device is baked in.
 
 Read [`../REPORT.md`](../REPORT.md) for the protocol evidence behind every call.
 
 ```
 app/
-  anker_client.py   protocol client: login, sites, devices, plan, write, validation
-  live.py           per-session MQTT feed (read-only, mTLS)
-  server.py         stdlib HTTP server, sessions, write/verify/rollback
-  static/           index.html + app.js (vanilla, no build step)
+  anker_client.py     protocol client: login, sites, devices, plan, write, validation
+  home_view.py        pure telemetry -> dashboard view-model mapping (tested)
+  live.py             per-session MQTT feed (read-only, mTLS)
+  server.py           stdlib HTTP server, sessions, write/verify/rollback
+  static/
+    index.html        login, Home stage, plan drawer
+    home-view.js      formatting, state attributes, clock, flow layout
+    css/              base, home, drawer
+    assets/house.svg  hand-built vector house (the only illustration)
+  tests/              unittest: home_view state/mapping tests
 ```
 
 ---
@@ -23,8 +30,12 @@ python3 -m pip install --user requests cryptography paho-mqtt
 ./pandacode-run.sh                 # http://127.0.0.1:8770
 ```
 
-Sign in with your Anker account. Sites and devices are discovered from the account; the plan is
-read from the cloud; the live card starts automatically.
+Sign in with your Anker account at `/`. Sites and devices are discovered from the account; the
+plan is read from the cloud. The dashboard starts as soon as the inverter list is known; the
+plan request loads in the background. This is the only UI: there is no demo/preview fixture.
+
+Until telemetry arrives, live cards show `—` and the flow layer is hidden. Until the real plan
+and strategy load, plan-specific controls are blank/disabled, not pre-filled with sample data.
 
 ---
 
@@ -33,7 +44,7 @@ read from the cloud; the live card starts automatically.
 | Value | Source |
 |---|---|
 | Region / base URL | country chosen at sign-in |
-| Sites | `get_site_list` |
+| Sites | `get_site_list` (including site timezone when present) |
 | Inverter + battery modules | `get_site_device_list` / device buckets, classified by model prefix |
 | TOU plan | `charging_hes_svc/get_utility_rate_plans` (site-scoped) |
 | Live power | `get_user_mqtt_info` → MQTT `dt/anker_power/<model>/<sn>/#` |
@@ -44,28 +55,55 @@ capacity, never offered as a plan target.
 
 ---
 
-## 3. Live card
+## 3. Wall dashboard (Home)
 
-- **Transport:** one MQTT over TLS connection per signed-in session, mTLS with certificates
-  fetched via `get_user_mqtt_info`, **subscribe-only**.
-- **Cadence:** the inverter publishes an `ems` frame every ~5 s. No polling.
-- **Payload:** base64 `trans` → JSON → `pp` (PV), `gp` (grid), `bp` (battery), `lp` (load),
-  `p2lp`/`p2bp`/`p2gp`/`g2lp`/`g2bp`/`b2lp`/`b2gp` (flow edges), `soc`.
-- **Caching:** the browser polls **our** `/api/live` every 2 s; that never reaches Anker.
-- **Lifecycle:** feed starts lazily on first `/api/live`, stops on logout, idle expiry or
-  auth failure. Certificates live in a `0700` temp dir that is deleted on stop.
-- **Failure:** reconnect backoff 5 → 60 s; the UI shows `stale` after 30 s without a frame.
+- **Purpose-built for distance.** One landscape composition: Solar Generation, Grid, Battery
+  and Home Consumption around a vector house, with colour-coded flow paths.
+- **Elastic scaling, no build step.** The stage uses one `--u` token
+  (`clamp(4.6px, min(0.598vw, 1.063vh), 14px)`), refined in JS on resize. Every card, icon,
+  gap and flow stroke is a multiple of it. No `transform: scale()` for the page, so text
+  stays crisp. Reference composition is 1672×941; 4:3 and ultrawide are graceful. Narrow
+  screens (≤700 px) fall back to a stacked layout; wider tall/square windows keep the
+  around-the-house composition and pull the cards closer instead of stacking them.
+- **Vector-only artwork.** `static/assets/house.svg` is hand-built (walls, roof, solar array,
+  windows, trees, lawn, ground). Icons are inline SVG; hills, stars and glow are inline
+  SVG/CSS. No external images, fonts, CDNs or runtime AI calls.
+- **Live state in one place.** The server normalises raw MQTT into a small `view`:
+  `importing/exporting/idle`, `charging/discharging/idle`, clamped SOC, per-edge flow
+  activity and `live/stale/waiting/offline`. The browser renders values and sets
+  `data-available`, `data-stale`, `data-solar`, `data-grid`, `data-battery`, `data-status`.
+  These are the hooks for the future animation pass; **this milestone has no live animation**.
+- **Flows are measured, not guessed.** `home-view.js` measures the cards and house slot and
+  redraws the SVG paths on resize/orientation change. Grid import runs card → house; export
+  runs house → card. Battery charging runs house → card; discharge runs card → house. The
+  arrow direction therefore matches the data even before animations exist.
+- **Stale is quiet but visible.** Cards dim, values keep their last reading, and the clock
+  status becomes amber `Stale · Ns` after 30 s without a frame. Unavailable telemetry shows
+  `—`, never a fake zero, and hides the flow layer.
+- **No summary strip and no weather.** Both were deliberately deferred until an Anker stats
+  source exists. The bottom band is left available for a future strip; the clock and site
+  name occupy the corners.
+- **Clock** uses the site timezone from the account when present, otherwise the browser's
+  local time. It updates once a minute (timer ticks every second but only writes on change).
+- **Kiosk-friendly.** The page never scrolls on Home in landscape; the drawer scrolls
+  independently. Fullscreen is available from the drawer. `prefers-reduced-motion` is
+  respected from day one.
 
-Upstream load is strictly lower than the Android app, which additionally polls REST every 30 s.
+Transport: one MQTT connection per site+inverter, mTLS, **subscribe-only**. The inverter
+publishes an `ems` frame every ~5 s. The browser polls **our** `/api/live` every 2 s (and
+skips hidden tabs); upstream load is strictly lower than the Android app.
+
 
 ---
 
-## 4. Editor
+## 4. Plan editor (burger drawer)
 
-After sign-in you land on the **Home** tab (live energy flow). The editor lives on the **Plan**
-tab; the live feed pauses while you are there and resumes on return.
+After sign-in the dashboard paints immediately. The **Plan** view is a full-height dark sheet
+opened by the always-visible top-left burger (or `#plan`), with a backdrop, focus trap,
+Escape/backdrop close and focus restoration. The live feed keeps running while it is open.
 
-1. **Site** selector when the account has more than one site.
+1. **Site** selector when the account has more than one site; changing it restarts the live
+   feed for that site and reloads the plan.
 2. **Main inverter** shown read-only; a selector appears only with multiple inverters.
 3. **Seasons** with month ranges; **Weekday/Weekend** tabs; up to 4 periods each.
 4. **Periods**: tariff, start, end, price — 1-hour steps. Changing an end moves the next
@@ -76,13 +114,14 @@ tab; the live feed pauses while you are there and resumes on return.
    The editor enforces the app's full-day rule: the first period starts at **00:00**, the last
    ends at **24:00**, and periods are contiguous. A wrap such as 23:00–05:00 is split into
    00:00–05:00 and 23:00–24:00; deleting a period extends its neighbour; adding one splits the
-   final period. The first period's start (`00:00`) and the last period's end (`24:00`) are
-   fixed and cannot be changed; with a single period both are locked. Each tariff also has a
-   **single buy and single sell price** — editing any
-   Super Off-Peak buy or sell updates every Super Off-Peak period across both days and all
-   seasons.
+   final period and gives the new slice the first tariff unused that day, so it is not merged
+   straight back. The first period's start and last period's end are fixed. Each tariff also
+   has a **single buy and single sell price** — editing any Super Off-Peak buy or sell updates
+   every Super Off-Peak period across both days and all seasons.
 6. **Changes**: live diff; nothing is sent until you review and acknowledge.
 7. **Save**: snapshot → write → read back → auto-rollback on mismatch.
+8. **Diagnostics**, result log and sign-out live in the drawer. Errors in the plan load add a
+   small amber dot to the burger.
 
 Only plan fields are writable. Controller state (`price_type`, mode, dynamic pricing) is
 rejected server-side before any request.
@@ -121,9 +160,10 @@ the app saved. The full method is in `REPORT.md` §17.
 | Headers | CSP (`default-src 'self'`), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`. |
 | Brute force | 8 login attempts per IP / 5 min → 429. |
 | Logging | Access log off; errors log method + path only; bodies/headers/tokens never logged. |
-| Static files | Path traversal rejected; only known extensions served. |
+| Static files | Path traversal rejected; only known extensions served; image MIME types added for future raster assets. |
 | Disk | `~/.anker-tou/` `0700`; key/session/certs `0600`; plan snapshots under `~/.anker-tou/captures`. |
 | Live certs | Temp dir per session, deleted on stop; never committed. |
+| New UI | No external assets/fonts/CDN and no fixture data. Every static asset is referenced by the Home/editor shell; missing telemetry renders as `—`, never a sample value. |
 
 **Not protected:** a compromised host account can read the session key. There is no 2FA.
 
@@ -141,8 +181,8 @@ The app is a single Python process with no external database. For a public insta
 5. One process only. Sessions and live feeds are in memory; multiple workers would each hold
    their own MQTT connections and Anker sessions.
 6. Add proxy-level rate limits on `/api/login` and a request-body cap.
-7. Watch MQTT connections: each signed-in user holds one. Anker may cap concurrent sessions
-   per account; the app already reconnects with backoff.
+7. Watch MQTT connections: each signed-in user holds one per site+inverter, capped at four per
+   session. Anker may cap concurrent sessions per account; the app reconnects with backoff.
 
 Example (Caddy):
 
@@ -162,8 +202,10 @@ python3 app/server.py --host 127.0.0.1 --port 8770 --secure-cookies --no-persist
 - Anker's API is undocumented and may change without notice. Treat failures as expected.
 - A user can be signed in on only one client at a time in practice; signing in on the phone
   can invalidate the web session (`26084`). The app then returns to sign-in.
-- The live feed needs `paho-mqtt`; if it is missing the editor still works and the card shows
-  `unavailable`.
+- The live feed needs `paho-mqtt`; if it is missing the editor still works and cards show
+  `Unavailable`.
+- For a wall frame, use the browser's kiosk/fullscreen mode. Keep the frame on a trusted LAN
+  and put the app behind HTTPS if it leaves localhost.
 
 ---
 
@@ -184,7 +226,8 @@ State lives in `~/.anker-tou/` (override with `ANKER_TOU_HOME` if set by your de
 ## 8. Diagnostics
 
 `GET /api/diag` (authenticated) returns the last 60 requests: method, path, status, duration,
-redacted error. The UI shows it under **Diagnostics**. It contains no bodies, headers or tokens.
+redacted error. The UI shows it under **Diagnostics** in the drawer. It contains no bodies,
+headers or tokens.
 
 | Situation | Behaviour |
 |---|---|
@@ -194,14 +237,18 @@ redacted error. The UI shows it under **Diagnostics**. It contains no bodies, he
 | 429 | no retry storm; asks you to wait |
 | Validation | caught in the browser, re-checked server-side |
 | Read-back mismatch | polls up to ~6 s (cloud is eventually consistent), then 409 + automatic restore + both plans |
-| Live feed down | card shows `stale`/`unavailable`; editor unaffected |
+| Live feed down | cards show `—` + waiting/offline; flows hide; editor unaffected |
+| Live frame older than 30 s | values stay, cards dim, amber `Stale` |
 
 ---
 
 ## 9. Known limitations
 
+- **No summary metrics or weather yet.** The previous mockup's "Today's Production / CO₂ /
+  Earnings" strip and the weather row are intentionally absent; there is no verified Anker
+  stats source in this build.
 - **The device only honours whole hours.** The cloud stores `23:30`, but the inverter
-  switched at `23:00`; `05:30` became `05:00`. The editor now uses hourly slots and floors
+  switched at `23:00`; `05:30` became `05:00`. The editor uses hourly slots and floors
   existing `:30` plans on load. See [`docs/FIRMWARE-LIMITS.md`](../docs/FIRMWARE-LIMITS.md).
 - **Anker's API is private.** Endpoints can change; there is no SLA.
 - **Plan shape** assumes `peak_sessions[].peak_valley_prices[]`. A different firmware shape
@@ -214,4 +261,7 @@ redacted error. The UI shows it under **Diagnostics**. It contains no bodies, he
   `buy`/`sell` truncated to two decimals; the `0.0762` shown in the Android UI is local state.
   The editor truncates to two decimals on input and sends the values back unchanged, so a
   schedule save no longer alters stored prices. Omitting `buy` still clears it — never omit.
-- **Live data is per-account**; a site with no inverter exposes no feed.
+- **Live data is per-account**; a site with no inverter exposes no feed. The site timezone
+  is used when the account exposes one; otherwise the clock follows the browser.
+- **No live animations in this milestone.** State attributes and icon part classes are ready
+  for a CSS-only M2; `prefers-reduced-motion` already disables the flow transition.

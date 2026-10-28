@@ -198,11 +198,15 @@ a second client coexist with the phone app. Connect over TLS **8883** with
 mutual TLS, then subscribe read-only to:
 
 ```
-dt/anker_power/<model>/<sn>/#
+dt/anker_power/<model>/<sn>/troubleshot_info/ems_second
+dt/anker_power/<model>/<sn>/basic_info
+dt/anker_power/<model>/<sn>/param_info
+dt/anker_power/<model>/<sn>/state_info
 ```
 
 The EMS frame used by the home screen is `…/troubleshot_info/ems_second`, arriving about
-every **5 s**. Outer JSON:
+every **5 s**. Wildcards are rejected by the broker ACL; subscribe to the exact topics.
+Outer JSON:
 
 ```json
 {"head":{"client_id":"<sn>","cmd":8,"timestamp":1700000000,"…":"…"},

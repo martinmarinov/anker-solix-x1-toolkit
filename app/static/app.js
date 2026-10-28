@@ -1,11 +1,9 @@
-/* Anker X1 TOU editor — vanilla JS, no build step, no third-party code. */
+/* Anker X1 — wall-display dashboard + plan editor. Vanilla JS, no build step. */
 
 const $ = (id) => document.getElementById(id);
 
 // ORDER MATTERS. In the X1 `peak_valley_prices` schema the numeric types run
-// cheapest -> most expensive: 1 = Super Off-Peak, 4 = Peak. This is the
-// opposite of the older Solarbank enum. Verified against a live X1 plan where
-// type 1 carried buy=0 (night) and type 4 carried buy=0.30 (day).
+// cheapest -> most expensive: 1 = Super Off-Peak, 4 = Peak.
 const TARIFFS = [
   { v: 1, name: "Super Off-Peak", cls: "valley", tl: "tl-valley" },
   { v: 2, name: "Off-Peak", cls: "off", tl: "tl-off" },
@@ -27,6 +25,8 @@ const state = {
   user: null, sites: [], site: null, sn: null,
   plan: null, loaded: null, seasonIdx: 0, dayType: 2,
   limits: null, limitsCheck: null, devices: [], busy: false,
+  devicesLoaded: false, planLoaded: false, planLoading: false,
+  liveTimer: null, drawerOpen: false, siteTimezone: "",
   linkDays: (() => {
     try { const v = localStorage.getItem("anker.linkDays"); return v === null ? true : v === "1"; }
     catch { return true; }
@@ -78,6 +78,7 @@ function startPhase(msg) {
   stopPhase();
   const t0 = Date.now();
   const el = $("netBanner");
+  if (!el) return;
   el.className = "banner info";
   el.innerHTML = `<span class="spin"></span><span class="phaseMsg"></span> ` +
                  `<span class="muted phaseSecs"></span>`;
@@ -96,15 +97,31 @@ function stopPhase() {
 function setNet(kind, html, retry) {
   stopPhase();
   const el = $("netBanner");
+  if (!el) return;
   el.className = "banner " + kind;
   el.innerHTML = html;
   if (retry) {
     const b = document.createElement("button");
     b.textContent = "Retry";
+    b.type = "button";
     b.style.marginLeft = "10px";
     b.onclick = retry;
     el.appendChild(b);
   }
+}
+
+function siteMeta() {
+  return state.sites.find((s) => s.id === state.site) || {};
+}
+function siteName() {
+  const s = siteMeta();
+  return s.name || "Site";
+}
+function applySiteTimezone() {
+  const tz = siteMeta().timezone || "";
+  state.siteTimezone = tz;
+  HomeView.setTimezone(tz);
+  HomeView.setSite(siteName());
 }
 
 // HES enum, verified by the anker-solix-api live probe and the app model:
@@ -128,8 +145,6 @@ function toMin(t) {
   const [h, m] = String(t).split(":").map(Number);
   return h * 60 + m;
 }
-
-
 function fmtMin(m) {
   const h = Math.floor(m / 60), mm = m % 60;
   return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
@@ -189,7 +204,6 @@ function canonicalizeDay(seasonObj, dayType) {
   return { gaps: 0, count: rebuilt.length };
 }
 
-
 function allPriceRows(plan) {
   return ((plan || state.plan || {}).peak_sessions || [])
     .flatMap((x) => x.peak_valley_prices || []);
@@ -239,8 +253,17 @@ function rowsFor(seasonObj, dayType) {
 /* --------------------------------------------------------------- views */
 
 function show(view) {
+  const app = view === "app";
   $("loginView").classList.toggle("hide", view !== "login");
-  $("appView").classList.toggle("hide", view !== "app");
+  $("appView").classList.toggle("hide", !app);
+  if (app) {
+    HomeView.init();
+    HomeView.startClock();
+  } else {
+    stopLive();
+    HomeView.stopClock();
+    closeDrawer(false, false);
+  }
 }
 
 /* --------------------------------------------------------------- login */
@@ -260,7 +283,7 @@ $("loginForm").addEventListener("submit", async (e) => {
         country: $("country").value,
       }),
     });
-    $("password").value = "";           // never keep it around
+    $("password").value = "";
     state.user = js.user;
     state.sites = js.sites || [];
     if (!state.sites.length) throw new Error("No sites on this account.");
@@ -276,25 +299,43 @@ $("loginForm").addEventListener("submit", async (e) => {
 
 async function enterApp() {
   show("app");
-  const site = (state.sites || []).find((s) => s.id === state.site);
-  $("who").textContent = state.user
-    ? `${state.user.nick}${site ? " · " + (site.name || site.id) : ""}`
-    : "";
+  HomeView.setAlert("");
+  $("menuBtn").classList.remove("has-error");
+  applySiteTimezone();
   renderSites();
-  await loadAll();
-  switchTab(location.hash === "#plan" ? "plan" : "home", false);
+  const s = siteMeta();
+  $("who").textContent = state.user
+    ? `${state.user.nick || ""}${s && s.name ? " · " + s.name : ""}`
+    : "";
+  $("netBanner").className = "banner info";
+  $("netBanner").textContent = "Connecting to your inverter…";
+
+  const ok = await loadDevices();
+  if (!ok) return;
+  startLive();
+
+  if (location.hash === "#plan") {
+    openDrawer(true);
+  } else {
+    // The dashboard must paint before the plan request. Load it in the
+    // background so opening the drawer later is instant.
+    setTimeout(() => {
+      if (!state.planLoaded && !state.planLoading && !document.hidden) loadPlan();
+    }, 1400);
+  }
 }
 
-/* ---------------------------------------------------------- load state */
+/* ---------------------------------------------------------- data loading */
 
 function pickDevice(list) {
   const want = list.find((d) => String(d.code || "").match(/^(A17B1|A5101|A5102|A5103)/));
   return (want || list[0] || {}).sn;
 }
 
-async function loadAll(deviceSn) {
+async function loadDevices(deviceSn) {
+  if (!state.site) return false;
+  startPhase("Loading devices…");
   try {
-    startPhase("Loading devices…");
     const dv = await api(`/api/devices?site=${encodeURIComponent(state.site)}`, { timeout: 20000 });
     state.devices = dv.devices || [];
     state.deviceSource = dv.source;
@@ -306,11 +347,46 @@ async function loadAll(deviceSn) {
           (p.data_keys ? ` [keys: ${p.data_keys.join(", ")}]` : "");
       }).join(" · ");
       throw new Error("Signed in, but the device list came back empty. Tried — " +
-        (tried || "no shapes recorded") + ". Open Diagnostics and send these lines.");
+        (tried || "no shapes recorded") + ".");
     }
     state.sn = deviceSn || state.sn || pickDevice(state.devices);
+    state.devicesLoaded = true;
+    HomeView.setAlert("");
     renderDevices();
+    setNet("good", `Live telemetry target ready${state.sn ? " · " + String(state.sn).slice(-6) : ""}.`);
+    return true;
+  } catch (e) {
+    state.devicesLoaded = false;
+    state.devices = [];
+    state.sn = null;
+    renderDevices();
+    HomeView.setAlert("Could not load your inverter. " + e.message);
+    setNet("bad", `<b>Could not load devices.</b> ${escapeHtml(e.message)}`,
+      () => loadAll(deviceSn));
+    if (e.kind === "auth") show("login");
+    return false;
+  }
+}
 
+function resetStrategyFields() {
+  const reserve = $("reserveSoc");
+  const grid = $("gridCharging");
+  if (reserve) { reserve.value = ""; reserve.disabled = true; }
+  if (grid) { grid.checked = false; grid.disabled = true; }
+  const note = $("strategyNote");
+  if (note) note.textContent = "Load a plan to read this.";
+}
+
+async function loadPlan() {
+  if (state.planLoading) return false;
+  if (!state.site) return false;
+  if (!state.sn) {
+    const ok = await loadDevices();
+    if (!ok) return false;
+  }
+  state.planLoading = true;
+  resetStrategyFields();
+  try {
     startPhase("Reading Time-of-Use plan…");
     const q = new URLSearchParams({ site: state.site, sn: state.sn });
     const js = await api(`/api/plan?${q}`, { timeout: 60000 });
@@ -338,94 +414,80 @@ async function loadAll(deviceSn) {
     state.endpoint = js.endpoint;
     state.seasonIdx = 0;
     state.limitsCheck = null;
+    state.planLoaded = true;
     renderAll();
-
+    $("menuBtn").classList.remove("has-error");
     setNet("good", `Plan loaded${js.endpoint ? " via " + escapeHtml(js.endpoint) : ""}.`);
+    return true;
   } catch (e) {
-    if (e.kind === "auth") { show("login"); return; }
+    state.planLoaded = false;
+    state.endpoint = null;
+    $("menuBtn").classList.add("has-error");
     setNet("bad", `<b>Could not load your plan.</b> ${escapeHtml(e.message)}`,
-      () => loadAll(deviceSn));
+      () => loadPlan());
+    if (e.kind === "auth") show("login");
+    return false;
+  } finally {
+    state.planLoading = false;
   }
 }
 
+async function loadAll(deviceSn) {
+  const ok = await loadDevices(deviceSn);
+  if (ok) await loadPlan();
+}
 
-/* ------------------------------------------------------------ live card */
-
-let liveTimer = null;
-let activeTab = "home";
-
-const kwText = (w) => (Number(w || 0) / 1000).toFixed(2);
-
-function setFlow(id, watts) {
-  const el = $(id);
-  if (!el) return;
-  const on = Math.abs(Number(watts || 0)) > 5;
-  el.classList.toggle("on", on);
-  if (on) {
-    const speed = Math.max(0.45, Math.min(2.2, 2.2 - Math.abs(Number(watts)) / 2500));
-    el.style.animationDuration = `${speed}s`;
+async function ensurePlan() {
+  if (state.planLoaded || state.planLoading) return;
+  if (!state.devicesLoaded) {
+    const ok = await loadDevices();
+    if (!ok) return;
+    startLive();
   }
+  await loadPlan();
 }
 
-function renderLive(live) {
-  const l = live || {};
-  const avail = !!l.available;
-  const age = $("liveAge");
-  if (age) {
-    age.textContent = avail
-      ? `updated ${l.age_s ?? 0}s ago${l.stale ? " · stale" : ""}`
-      : (l.reason || "waiting for telemetry…");
-    age.className = "small " + (avail ? (l.stale ? "err" : "ok") : "muted");
-  }
-  const put = (id, val) => { const el = $(id); if (el) el.textContent = val; };
-  put("vSolar", kwText(l.pp));
-  put("vGrid", kwText(l.gp));
-  put("vBatt", kwText(l.bp));
-  put("vHome", kwText(l.lp));
-  const soc = Number(l.soc || 0);
-  put("socVal", soc ? `${soc.toFixed(0)}%` : "—");
-  put("homeSoc", soc ? `${soc.toFixed(0)}%` : "—");
-  const bar = $("socBar");
-  if (bar) bar.setAttribute("width", String(Math.max(0, Math.min(68, (68 * soc) / 100))));
-  setFlow("fSolar", l.pp);
-  setFlow("fGrid", l.gp);
-  setFlow("fBatt", l.bp);
-  put("liveMode", avail ? `${soc ? soc.toFixed(0) + "% SOC" : ""}` : "");
-}
-
-async function loadLive() {
-  try {
-    const js = await api("/api/live", { timeout: 8000 });
-    renderLive(js.live);
-  } catch (e) {
-    renderLive({ available: false, reason: e.message });
-  }
-}
-
-function switchTab(name, push = true) {
-  activeTab = name === "plan" ? "plan" : "home";
-  document.querySelectorAll("#mainTabs button").forEach((b) => {
-    b.classList.toggle("on", b.dataset.tab === activeTab);
-  });
-  const home = $("tab-home"), plan = $("tab-plan");
-  if (home) home.classList.toggle("hide", activeTab !== "home");
-  if (plan) plan.classList.toggle("hide", activeTab !== "plan");
-  if (activeTab === "home") startLive(); else stopLive();
-  if (push && history.replaceState) history.replaceState(null, "", `#${activeTab}`);
-}
+/* ------------------------------------------------------------ live data */
 
 function startLive() {
-  if (liveTimer) return;
+  stopLive();
+  if (!state.site) return;
   loadLive();
-  liveTimer = setInterval(() => { if (!document.hidden) loadLive(); }, 2000);
+  state.liveTimer = setInterval(() => {
+    if (!document.hidden) loadLive();
+  }, 2000);
 }
 
 function stopLive() {
-  if (liveTimer) { clearInterval(liveTimer); liveTimer = null; }
+  if (state.liveTimer) { clearInterval(state.liveTimer); state.liveTimer = null; }
 }
 
-/* --------------------------------------------------------------- diffs */
+async function loadLive() {
+  if (!state.site) return;
+  const site = state.site;
+  const sn = state.sn;
+  const q = new URLSearchParams({ site });
+  if (sn) q.set("sn", sn);
+  try {
+    const js = await api(`/api/live?${q}`, { timeout: 8000 });
+    if (site !== state.site || (sn && sn !== state.sn)) return; // stale response
+    if (js.timezone && js.timezone !== state.siteTimezone) {
+      state.siteTimezone = js.timezone;
+      HomeView.setTimezone(js.timezone);
+    }
+    if (js.view) HomeView.render(js.view);
+  } catch (e) {
+    if (e.kind === "auth") { stopLive(); show("login"); return; }
+    if (site !== state.site) return;
+    HomeView.renderUnavailable(e.message);
+  }
+}
 
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && state.site && !$("appView").classList.contains("hide")) loadLive();
+});
+
+/* --------------------------------------------------------- home rendering */
 
 function renderAll() {
   if ($("planMeta")) {
@@ -451,13 +513,28 @@ function renderSites() {
   });
   const multiple = (state.sites || []).length > 1;
   sel.classList.toggle("hide", !multiple);
-  const cur = (state.sites || []).find((x) => x.id === state.site);
-  const hs = $("homeSite");
-  if (hs) hs.textContent = cur ? (cur.name || cur.id) : "—";
-  sel.onchange = () => {
+  sel.onchange = async () => {
     state.site = sel.value;
     state.sn = null;
-    loadAll();
+    state.plan = null;
+    state.loaded = null;
+    state.endpoint = null;
+    state.strategyLoaded = null;
+    state.planLoaded = false;
+    state.devicesLoaded = false;
+    state.devices = [];
+    state.seasonIdx = 0;
+    applySiteTimezone();
+    const s = siteMeta();
+    $("who").textContent = state.user
+      ? `${state.user.nick || ""}${s && s.name ? " · " + s.name : ""}` : "";
+    stopLive();
+    renderAll();
+    resetStrategyFields();
+    const ok = await loadDevices();
+    if (!ok) return;
+    startLive();
+    loadPlan();
   };
 }
 
@@ -472,6 +549,7 @@ function renderDevices() {
   const main = state.devices.find((d) => d.main) ||
                inverters.find((d) => d.sn === state.sn) || inverters[0];
 
+  if (!sel || !label || !note) return;
   sel.innerHTML = "";
   inverters.forEach((d) => {
     const o = document.createElement("option");
@@ -483,21 +561,27 @@ function renderDevices() {
   const multiple = inverters.length > 1;
   sel.classList.toggle("hide", !multiple);
   label.classList.toggle("hide", multiple);
-  if (label) {
-    label.textContent = main
-      ? `Main inverter ${main.code || ""} · ${String(main.sn).slice(-6)}`
-      : "No inverter found";
-  }
-  const hd = $("homeDevice");
-  if (hd) {
-    hd.textContent = main ? `${main.code || "inverter"} · ${String(main.sn).slice(-6)}` : "—";
-  }
-  if (note) {
-    note.textContent = modules.length
-      ? `Plan applies to the whole site · ${modules.length} × ${modules[0].code || "battery"} module(s)`
-      : "Plan applies to the whole site";
-  }
-  sel.onchange = () => { state.sn = sel.value; loadAll(sel.value); };
+  label.textContent = main
+    ? `Main inverter ${main.code || ""} · ${String(main.sn).slice(-6)}`
+    : "No inverter found";
+  HomeView.setDevice(main ? `${main.code || "inverter"} · ${String(main.sn).slice(-6)}` : "");
+  note.textContent = modules.length
+    ? `Plan applies to the whole site · ${modules.length} × ${modules[0].code || "battery"} module(s)`
+    : "Plan applies to the whole site";
+  sel.onchange = async () => {
+    state.sn = sel.value;
+    state.plan = null;
+    state.loaded = null;
+    state.endpoint = null;
+    state.strategyLoaded = null;
+    state.planLoaded = false;
+    state.seasonIdx = 0;
+    stopLive();
+    renderAll();
+    resetStrategyFields();
+    startLive();
+    loadPlan();
+  };
 }
 
 function renderSeasons() {
@@ -714,10 +798,20 @@ $("addPeriod").onclick = () => {
     const mid = a + Math.max(60, Math.floor((b - a) / 120) * 60);
     const oldEnd = last.end_time_period;
     last.end_time_period = fmtMin(mid);
-    s.peak_valley_prices.push({
-      ...last, id: 0, day_type: dt,
+    // Splitting the last period in place would immediately merge back in
+    // canonicalizeDay (same tariff + price). Give the new slice a tariff that
+    // is unused that day so it is a real, editable period.
+    const used = new Set(rowsFor(s, dt).map((x) => Number(x.r.peak_type)));
+    const newType = [2, 3, 4, 1].find((t) => !used.has(t)) || 2;
+    const row = {
+      ...last, id: 0, day_type: dt, peak_type: newType,
       start_time_period: fmtMin(mid), end_time_period: oldEnd,
-    });
+    };
+    const buy = tariffValue(state.plan, newType, "buy");
+    const sell = tariffValue(state.plan, newType, "sell");
+    if (buy !== null) row.buy = buy;
+    if (sell !== null) row.sell = sell;
+    s.peak_valley_prices.push(row);
   }
   canonicalizeSeason(s);
   renderAll();
@@ -802,14 +896,12 @@ function describeChanges() {
 function renderChanges() {
   const changes = describeChanges();
   const box = $("diffSummary");
-  // Write path is NOT the app's. The Android app saves TOU via
-  // charging_hes_svc/device_command (LargeTouRepository.saveTouPlan ->
-  // saveTouMode -> sendDeviceCommand). This build still targets
-  // update_hes_utility_rate_plan, so writing would be unverified.
-  // device_command stores exact strings, but the D156 device applies whole hours
-  // (23:30→23:00, 05:30→05:00). The editor therefore only emits hourly boundaries.
+  // The Android app saves TOU via charging_hes_svc/device_command. That call
+  // stores exact strings, but the D156 device applies whole hours (23:30→23:00,
+  // 05:30→05:00). The editor therefore only emits hourly boundaries and
+  // verifies every write by reading it back.
   $("saveBtn").disabled = changes.length === 0;
-  $("saveBtn").textContent = "Write & verify";
+  $("saveBtn").textContent = "Review & save";
   $("discardBtn").disabled = changes.length === 0;
   if (!changes.length) { box.innerHTML = '<span class="muted">No changes yet.</span>'; return; }
   box.innerHTML = changes.map((c) => `<div>• ${escapeHtml(c)}</div>`).join("");
@@ -914,8 +1006,8 @@ function openConfirm() {
   const modal = document.createElement("div");
   modal.className = "overlay";
   modal.innerHTML = `
-    <div class="modal">
-      <h3>Confirm schedule change</h3>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h3 id="confirmTitle">Confirm schedule change</h3>
       <div class="small muted">The plan is written to Anker's cloud, then read back and verified.
         If the read-back differs, the previous plan is restored automatically.</div>
       <div class="small muted" style="margin:10px 0">
@@ -933,13 +1025,32 @@ function openConfirm() {
       </div>
     </div>`;
   document.body.appendChild(modal);
-  const close = () => modal.remove();
+  const previous = document.activeElement;
+  const close = () => {
+    modal.remove();
+    if (previous && previous.focus) {
+      try { previous.focus({ preventScroll: true }); } catch { /* ignore */ }
+    }
+  };
+  const ack = modal.querySelector("#ackBox");
   modal.querySelector("#cancelModal").onclick = close;
-  modal.querySelector("#ackBox").onchange = (e) => {
+  ack.onchange = (e) => {
     modal.querySelector("#confirmModal").disabled = !e.target.checked;
   };
   modal.querySelector("#confirmModal").onclick = () => { close(); doSave(); };
   modal.addEventListener("click", (e) => { if (e.target === modal) close(); });
+  modal.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); close(); return; }
+    if (e.key !== "Tab") return;
+    const list = Array.from(modal.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    ));
+    if (!list.length) return;
+    const first = list[0], last = list[list.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
+  requestAnimationFrame(() => { try { ack.focus(); } catch { /* ignore */ } });
 }
 
 async function doSave() {
@@ -1003,7 +1114,6 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
-
 /* ---------------------------------------------------------- diagnostics */
 
 $("diagBtn").onclick = async () => {
@@ -1016,16 +1126,119 @@ $("diagBtn").onclick = async () => {
     $("diagBody").textContent = lines.join("\n") || "No requests yet.";
   } catch (e) {
     $("diagBody").textContent = "Diagnostics unavailable: " + e.message;
+    if (e.kind === "auth") show("login");
   }
 };
 
-/* ------------------------------------------------------------- tabs */
+/* -------------------------------------------------------------- drawer */
 
-document.querySelectorAll("#mainTabs button").forEach((b) => {
-  b.addEventListener("click", () => switchTab(b.dataset.tab));
+let lastFocus = null;
+
+function focusables(root) {
+  if (!root) return [];
+  return Array.from(root.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+    'textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+  )).filter((el) => el.offsetParent !== null || el === document.activeElement);
+}
+
+function openDrawer(push = true) {
+  if (state.drawerOpen) return;
+  state.drawerOpen = true;
+  lastFocus = document.activeElement;
+  $("planDrawer").hidden = false;
+  $("drawerBackdrop").hidden = false;
+  $("menuBtn").setAttribute("aria-expanded", "true");
+  document.body.classList.add("drawer-open");
+  const home = $("homeView");
+  if (home) { home.setAttribute("inert", ""); home.setAttribute("aria-hidden", "true"); }
+  if (push) history.replaceState(null, "", "#plan");
+  const drawer = $("planDrawer");
+  try { drawer.focus({ preventScroll: true }); } catch { /* ignore */ }
+  ensurePlan();
+}
+
+function closeDrawer(restoreFocus = true, updateHash = true) {
+  if (!state.drawerOpen) return;
+  state.drawerOpen = false;
+  $("planDrawer").hidden = true;
+  $("drawerBackdrop").hidden = true;
+  $("menuBtn").setAttribute("aria-expanded", "false");
+  document.body.classList.remove("drawer-open");
+  const home = $("homeView");
+  if (home) { home.removeAttribute("inert"); home.removeAttribute("aria-hidden"); }
+  if (updateHash) history.replaceState(null, "", location.pathname + location.search);
+  if (restoreFocus) {
+    const target = (lastFocus && lastFocus !== document.body) ? lastFocus : $("menuBtn");
+    if (target && target.focus) {
+      try { target.focus({ preventScroll: true }); } catch { /* ignore */ }
+    }
+  }
+  lastFocus = null;
+}
+
+function toggleDrawer() {
+  if (state.drawerOpen) closeDrawer();
+  else openDrawer();
+}
+
+$("menuBtn").addEventListener("click", toggleDrawer);
+$("drawerClose").addEventListener("click", () => closeDrawer());
+$("drawerBackdrop").addEventListener("click", () => closeDrawer());
+
+$("planDrawer").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (document.querySelector(".overlay")) return; // save confirmation wins
+    e.preventDefault();
+    closeDrawer();
+    return;
+  }
+  if (e.key !== "Tab" || document.querySelector(".overlay")) return;
+  const list = focusables($("planDrawer"));
+  if (!list.length) return;
+  const first = list[0], last = list[list.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault(); last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault(); first.focus();
+  }
 });
+
 window.addEventListener("hashchange", () => {
-  switchTab(location.hash === "#plan" ? "plan" : "home", false);
+  if (location.hash === "#plan" && !state.drawerOpen) openDrawer(false);
+  else if (location.hash !== "#plan" && state.drawerOpen) closeDrawer(false, false);
+});
+
+/* ------------------------------------------------------------- kiosk */
+
+$("fullscreenBtn").addEventListener("click", async () => {
+  try {
+    if (!document.fullscreenElement) {
+      if (!document.documentElement.requestFullscreen) throw new Error("not supported");
+      await document.documentElement.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  } catch (e) {
+    setStatus(`Fullscreen unavailable: ${e.message}`, true);
+  }
+});
+
+$("logoutBtn").addEventListener("click", async () => {
+  try { await api("/api/logout", { method: "POST", body: "{}" }); } catch { /* ignore */ }
+  stopLive();
+  HomeView.stopClock();
+  state.user = null;
+  state.sites = [];
+  state.site = null;
+  state.sn = null;
+  state.plan = null;
+  state.loaded = null;
+  state.devices = [];
+  state.planLoaded = false;
+  state.devicesLoaded = false;
+  closeDrawer(false, false);
+  show("login");
 });
 
 /* ------------------------------------------------------------- startup */
@@ -1033,17 +1246,10 @@ window.addEventListener("hashchange", () => {
 (async function boot() {
   try {
     const js = await api("/api/state");
-    state.user = js.user; state.sites = js.sites || [];
+    state.user = js.user;
+    state.sites = js.sites || [];
     if (!state.sites.length) { show("login"); return; }
     state.site = state.sites[0].id;
-    if (!state.site) {
-      show("app");
-      const keys = (js.site_keys || []).join(", ") || "none";
-      setNet("bad", `<b>Signed in, but the site id could not be read.</b> ` +
-        `The site object contains: <code>${escapeHtml(keys)}</code>. ` +
-        `Send me that list — the id field is under a name the client does not know yet.`);
-      return;
-    }
     await enterApp();
   } catch (e) {
     show("login");

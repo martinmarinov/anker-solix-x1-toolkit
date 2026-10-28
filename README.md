@@ -1,8 +1,9 @@
 # Anker SOLIX X1 — self-hosted toolkit
 
-A self-hosted toolkit for the Anker SOLIX X1. The first module is a **Time-of-Use editor**
-with whole-hour boundaries (the device's practical limit); the same backend also exposes **live telemetry** and a documented
-reverse-engineered API surface for future modules.
+A self-hosted toolkit for the Anker SOLIX X1. The first module is a **wall-display live
+dashboard** with a **Time-of-Use editor** behind a burger; the same backend exposes the
+documented reverse-engineered API surface for future modules. Scheduling uses whole-hour
+boundaries (the device's practical limit).
 
 It talks to Anker's cloud with **your own account**. Nothing about a particular user,
 site or device is built in.
@@ -17,7 +18,10 @@ site or device is built in.
   contiguous, wraps split, one buy/sell price per tariff).
 - Writes through the same `charging_hes_svc/device_command` call the Android app uses,
   then polls the read-back and rolls back on a real mismatch.
-- **Live monitor** — a house card fed by the inverter's MQTT telemetry (~5 s push, no polling).
+- **Wall-display dashboard** — a full-screen dark live view with solar, grid, battery and
+  home cards, a vector house and measured flow paths. The plan editor lives behind an
+  always-visible burger. No external assets; the display scales elastically and is built for
+  a landscape picture-frame browser.
 - Supports multiple sites and multiple inverters.
 
 The server, session handling and MQTT feed are shared infrastructure: new features (settings,
@@ -36,7 +40,9 @@ python3 -m pip install -r requirements.txt
 ./pandacode-run.sh                 # http://127.0.0.1:8770
 ```
 
-Sign in with your Anker account. Sites and devices are discovered automatically.
+Sign in with your Anker account. Sites and devices are discovered automatically. This is the
+real app, not a fixture: until telemetry arrives the dashboard shows `—`, and the plan controls
+stay blank until the real plan loads.
 
 For a server or container:
 
@@ -60,9 +66,11 @@ encrypted sessions, Anker API calls and MQTT. Use a small VPS/container, or run 
 | [`docs/API.md`](docs/API.md) | Reverse-engineered endpoints, schemas, MQTT telemetry |
 | [`docs/REVERSE-ENGINEERING.md`](docs/REVERSE-ENGINEERING.md) | Playbook for continuing the RE with a real device, mitmproxy and Frida |
 | [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md) | Why the device only honours whole-hour boundaries |
+| [`docs/MQTT-WAKE.md`](docs/MQTT-WAKE.md) | How the live MQTT stream is woken (investigation) |
+| [`docs/HOUSE-ASSET.md`](docs/HOUSE-ASSET.md) | Source and design notes for the vector house |
 | [`thomluther/anker-solix-api`](https://github.com/thomluther/anker-solix-api) | Independent community API; issue #313 cross-checked the HES enums/id semantics |
 | [`REPORT.md`](REPORT.md) | Full investigation, evidence and findings |
-| [`app/README.md`](app/README.md) | App architecture, security model, operation |
+| [`app/README.md`](app/README.md) | App architecture, dashboard, plan drawer, security, operation |
 
 ## Known limits
 
@@ -71,6 +79,8 @@ encrypted sessions, Anker API calls and MQTT. Use a small VPS/container, or run 
 - The API is private and undocumented. Expect breakage.
 - **Scheduling is effectively one-hour granularity.** The cloud stores `:30`, but the
   D156/X1 device applies the previous whole hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
+- The dashboard has **no summary/weather strip yet**; those await a verified Anker stats
+  source. The plan editor is available from the burger, not a tab.
 
 ## License
 

@@ -1,8 +1,16 @@
 # What wakes the live MQTT stream
 
 **Status:** investigation (2026-10-28). Raw captures live under
-`captures/mqtt-trigger-*.log` and are **gitignored**; this page contains sanitized
-findings only.
+`captures/` and are **gitignored**; this page contains sanitized findings only.
+
+> **Correction (2026-10-28, later):** the live dashboard was broken by our own
+> exact-topic change, not by the broker. The realtime stream is
+> `dt/anker_power/<pn>/<sn>/troubleshot_info/ems_second`, arriving every ~5 s
+> while the device stream is active. Our exact-topic subscription omitted `ems_second`.
+> `app/live.py` now includes it and the dashboard shows live data again.
+>
+> The `cmd:10000` / cloud `cmd:9` material below is the app’s separate aggregated
+> control channel. It is useful context, but **not required** for the web feed.
 
 ## Observation
 
@@ -28,7 +36,8 @@ The MQTT log from the instrumented app shows the subscriptions it creates:
 cmd/anker_power/<account_id>-anker_power/req       # cloud -> app data/commands
 cmd/anker_power/<account_id>-anker_power/res       # cloud responses
 cmd/anker_power/<pn>/<sn>/app/res                   # command responses
-dt/anker_power/<pn>/<sn>/basic_info                 # inverter telemetry
+dt/anker_power/<pn>/<sn>/troubleshot_info/ems_second # realtime telemetry (~5 s)
+dt/anker_power/<pn>/<sn>/basic_info
 dt/anker_power/<pn>/<sn>/param_info
 dt/anker_power/<pn>/<sn>/state_info
 dt/anker_power/<battery_pn>/<battery_sn>/param_info # battery telemetry
@@ -131,33 +140,74 @@ A fresh `get_user_mqtt_info` capture was obtained under
 client-id captured from the running app, and the certificate itself is the same
 certificate (same subject/serial).
 
-Testing the fresh identity produced the same result:
+Testing the fresh identity produced:
 
 - exact `dt/.../basic_info`, `param_info`, `state_info` → `SUBACK 0`
 - exact `cmd/anker_power/<thing>/req` and `/res` → `SUBACK 128`
-- no `dt` frames with the app open
+
+The first test still produced no frames because it subscribed to the wrong
+`dt` topics: the realtime payload is on
+`dt/.../troubleshot_info/ems_second`. A wildcard test proved that topic receives
+~5 s EMS frames while the app is open. The broker ACL rejects wildcards, so the
+exact `ems_second` topic must be listed explicitly.
 
 This rules out “stale certificate” and “wrong certificate_id” as the cause. The
-app’s `cmd:10000` subscription is app/AKIoT-specific and cannot be reproduced
-with the public `get_user_mqtt_info` material.
+app’s `cmd:10000` subscription is a separate aggregated channel and is not needed
+for the dashboard.
 
 ## Conclusion
 
-`dt` is not the live source. The live snapshot is on `cmd:10000`, and that topic
-is not available to this client identity. The `app/live.py` client-id/exact-topic
-fix is correct but **does not fix the waiting page**.
+The realtime source is:
 
-Do not claim the live bug fixed. Viable fallbacks:
+```text
+dt/anker_power/<pn>/<sn>/troubleshot_info/ems_second
+```
 
-1. **Local Modbus TCP** — poll the inverter directly for live power; no cloud
-   identity involved.
-2. **Authenticated HTTP snapshot** — use an app endpoint that returns live data
-   and decrypt it with the app's envelope logic.
-3. **Keep MQTT as a later enhancement** only if an app-side relay or a supported
-   cloud subscription path is found.
+Opening the app causes the cloud to send the `cmd:9` / `cmdId:4` trigger; the device then
+publishes `ems_second` frames every ~5 s. The web feed receives them when it
+subscribes to that exact topic. `cmd:10000` is the app’s separate aggregated UI
+channel and is not needed for the dashboard.
 
-The immediate product decision is whether to implement Modbus or the HTTP
-snapshot path.
+The earlier “waiting” regression was caused by our exact-topic subscription
+omitting `ems_second`. It is fixed in `app/live.py`, and the live endpoint returns
+`available: true` with fresh values again.
+
+## Automatic wake (implemented)
+
+If no frame has arrived **12 seconds** after MQTT connects, or the latest frame
+is more than **30 seconds** old, `LiveFeed` publishes the X1 request that the app
+itself causes the cloud to send:
+
+```text
+topic: cmd/anker_power/<pn>/<sn>/req
+head.cmd: 9
+data.cmdId: 4
+config: { "count": 60, "interval": 5 }
+```
+
+That is 60 samples at 5 s intervals = a **5-minute** realtime window. The request
+is read-only and does not change the plan or controller mode. A **240-second
+cooldown** prevents repeated triggering; the dashboard status shows
+**“Requesting live data”** while waiting.
+
+Verified against the live broker with the phone app **stopped**: publishing this
+frame produced multiple `ems_second` frames within seconds. The app is no longer
+required as the trigger, though opening it remains a valid fallback.
+
+Local Modbus was considered but **dropped**: it depends on a guaranteed local
+network path and the X1’s Modbus support is unconfirmed. The MQTT feed with the
+automatic wake is the current live source.
+
+## UI no-data placeholder (implemented)
+
+`build_home_view()` now requires at least one numeric power/flow field before it
+returns an available view. An EMS envelope with empty/unknown data is treated as
+unavailable with `kw: null` and the label **No telemetry data**, so the dashboard
+renders its `—` placeholder instead of four `0.00 kW` cards. Numeric zeroes are
+still valid idle telemetry and remain live.
+
+`parse_frame()` rejects empty/non-dict EMS `data` objects before they can replace
+the last good snapshot. Regression tests cover empty frames and true zero values.
 
 ## mitmproxy attempt
 
