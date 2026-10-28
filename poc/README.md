@@ -94,7 +94,7 @@ python3 anker_tou.py --email you@example.com --country GB \
 
 - **Do not use Dynamic Tariff to get sub-hour slots.** Anker support suggests it, and it does
   accept 23:30 — but on this installation it charged at a flat 6 kW with ~2 kW of backup load,
-  pulling a bit over 8 kW through a 32 A breaker until it tripped (Anker case #TNJ909651061). The TOU path
+  pulling a bit over 8 kW through a 32 A breaker until it tripped (Anker case #<case-ref>). The TOU path
   modulates charge power against the load; Dynamic Tariff does not. This tool refuses that endpoint
   unless you override it.
 - **Set a grid import / charge power limit below your breaker rating before the first write.**

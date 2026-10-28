@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Persist every plaintext plan/limit match from the Frida gadget."""
-import frida, hashlib, json, os, subprocess, sys, time
+import frida, hashlib, json, os, shutil, subprocess, sys, time
 
-ADB = os.environ.get("ADB", "/Users/martinmarinov/Library/Android/sdk/platform-tools/adb")
+ADB = os.environ.get("ADB") or shutil.which("adb") or "adb"
 HERE = os.path.dirname(os.path.abspath(__file__))
 JS = os.path.join(HERE, "gadget_capture_fast.js")
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "..", "captures", "raw-commands.jsonl")

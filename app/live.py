@@ -9,7 +9,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import random
 import shutil
 import ssl
 import tempfile
@@ -106,6 +105,37 @@ class LiveFeed:
             paths.append(path)
         return tuple(paths)
 
+    @staticmethod
+    def _client_id(info: dict) -> str:
+        """Build the app's authorized MQTT identity.
+
+        The broker ACL is keyed on the app's generated client-id:
+        ``android-<app_name>-<user_id>-<certificate_id>``. The old
+        ``thing_name_<random>`` form connects but gets SUBACK 128 (denied)
+        for every subscription. A suffix is allowed, so ``-web`` lets the
+        feed coexist with the phone app instead of taking over its session.
+        """
+        account = info.get("user_id") or str(info.get("thing_name", "")).split(
+            "-anker_power")[0]
+        cert_id = info.get("certificate_id")
+        if not cert_id:
+            raise ValueError("get_user_mqtt_info returned no certificate_id")
+        app_name = info.get("app_name") or "anker_power"
+        return f"android-{app_name}-{account}-{cert_id}-web"
+
+    def _on_connect(self, client, userdata, flags, rc) -> None:
+        if rc != 0:
+            self._set(available=False, reason=f"mqtt connect rc={rc}")
+            return
+        # The broker ACL rejects wildcard subscriptions (SUBACK 128) but
+        # authorizes these exact topics individually.
+        for suffix in ("basic_info", "param_info", "state_info"):
+            client.subscribe(f"dt/anker_power/{self.pn}/{self.sn}/{suffix}", qos=0)
+
+    def _on_subscribe(self, client, userdata, mid, granted_qos, properties=None) -> None:
+        if any(qos == 128 for qos in granted_qos):
+            self._set(available=False, reason="mqtt subscription denied")
+
     def _run(self) -> None:
         backoff = 5
         while not self.stop_event.is_set():
@@ -114,13 +144,12 @@ class LiveFeed:
                 info = self._fetch_info()
                 ca, cert, key = self._write_certs(info)
                 client = mqtt.Client(
-                    client_id=f"{info['thing_name']}_{random.randint(0, 99999):05d}",
+                    client_id=self._client_id(info),
                     protocol=mqtt.MQTTv311)
                 client.tls_set(ca_certs=ca, certfile=cert, keyfile=key,
                                tls_version=ssl.PROTOCOL_TLS_CLIENT)
-                topic = f"dt/anker_power/{self.pn}/{self.sn}/#"
-                client.on_connect = (
-                    lambda c, u, f, rc: c.subscribe(topic, qos=0) if rc == 0 else None)
+                client.on_connect = self._on_connect
+                client.on_subscribe = self._on_subscribe
                 client.on_message = self._on_message
                 self._mqtt = client
                 client.connect(info["endpoint_addr"], 8883, 30)

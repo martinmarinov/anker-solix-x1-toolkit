@@ -181,10 +181,21 @@ separate endpoint from `device_command`; there is no documented plan-body field 
 ```json
 {"endpoint_addr":"aiot-mqtt-<region>.anker.com",
  "thing_name":"<account_id>-anker_power",
+ "app_name":"anker_power","user_id":"<account_id>",
+ "certificate_id":"<certificate_id>",
  "certificate_pem":"…","private_key":"…","aws_root_ca1_pem":"…"}
 ```
 
-Connect MQTT over TLS **8883** with mutual TLS, subscribe read-only to:
+The broker ACL is keyed on the app’s generated client-id:
+
+```
+android-<app_name>-<user_id>-<certificate_id>
+```
+
+Using an arbitrary `thing_name_<random>` identity connects but every
+subscription returns **SUBACK 128**. A suffix such as `-web` is allowed and lets
+a second client coexist with the phone app. Connect over TLS **8883** with
+mutual TLS, then subscribe read-only to:
 
 ```
 dt/anker_power/<model>/<sn>/#

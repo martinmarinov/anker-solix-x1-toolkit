@@ -19,7 +19,7 @@
 | Question | Answer |
 |---|---|
 | Is the 1-hour step a hardware limit? | **Effectively yes for TOU.** The wire format carries `"HH:mm"` strings and the cloud stores `:30` verbatim, but the X1/D156 device floors TOU boundaries to the previous whole hour. The app’s picker is also hourly. *(seen in cloud and on device)* |
-| Can a 30-minute boundary be represented? | **In the cloud: yes. On the device: no.** A `23:30–05:30` window ran via the **Dynamic Tariff** path (Anker case `#TNJ909651061`), but a TOU plan stored as `23:30`/`05:30` switched at **23:00**/**05:00**. The device floors TOU boundaries to the hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md). |
+| Can a 30-minute boundary be represented? | **In the cloud: yes. On the device: no.** A `23:30–05:30` window ran via the **Dynamic Tariff** path (Anker case `#<case-ref>`), but a TOU plan stored as `23:30`/`05:30` switched at **23:00**/**05:00**. The device floors TOU boundaries to the hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md). |
 | What actually enforces 1 hour? | **The device’s TOU scheduler** (a `23:30` plan switched at `23:00`) plus the app’s hourly picker. The protocol still accepts `HH:mm`; only the device execution is hourly. |
 | Can I control the X1 from outside the app? | **Yes, two ways:** (a) the app's own cloud API, which the app uses for this exact screen; (b) **official local Modbus TCP** — sanctioned by Anker, but you must get it enabled by your installer. |
 | Should I patch the Anker app? | **No.** Flutter AOT snapshot, no Dart source, signed APK, breaks on every update. Worst effort/benefit ratio of all options. |
@@ -304,7 +304,7 @@ cloud, but the device applied **23:00 → 05:00** — do not use it. If a wrap i
 whole-hour fallback is three rows: `00:00–05:00`, `05:00–23:00`, `23:00–24:00` (both Valley ends,
 Peak in the middle).
 
-### 4.4 Field evidence — Anker case #TNJ909651061
+### 4.4 Field evidence — Anker case #<case-ref>
 
 Anker support's answer to "can TOU granularity be 30 minutes?" was to use **Dynamic Tariff** instead. That is a non-answer to the question, but it is a very useful data point for the reverse engineering — and it carries a safety finding.
 
@@ -448,7 +448,7 @@ The new client should be recognisably *the same screen*, so the mental model and
 
 **What is safe:** a TOU plan is a **configuration write**, not a firmware write. There is no code path here that flashes firmware, so **bricking is not a realistic risk**.
 
-**What is not safe:** do not confuse "not firmware" with "not physical". A schedule write also selects *how the inverter charges*, and one of those modes has already caused a real overcurrent event in this installation (Anker case `#TNJ909651061`, §4.4): 6 kW of charging plus 2 kW of backup load on a 32 A breaker, for over an hour, until it tripped. The protective device worked; the sequence should never have reached it. Treat charge-control changes as **electrical**, not merely behavioural.
+**What is not safe:** do not confuse "not firmware" with "not physical". A schedule write also selects *how the inverter charges*, and one of those modes has already caused a real overcurrent event in this installation (Anker case `#<case-ref>`, §4.4): 6 kW of charging plus 2 kW of backup load on a 32 A breaker, for over an hour, until it tripped. The protective device worked; the sequence should never have reached it. Treat charge-control changes as **electrical**, not merely behavioural.
 
 **Risk tiers:**
 
@@ -504,7 +504,7 @@ Then `device_command` (`cmd 123`) only if the app's flow requires it — **captu
 
 ### Phase 2 — behavioural verification
 - Night 1: check grid-charge **start at 23:00 and stop at 05:00** (app chart, Modbus `10002`, or your smart meter).
-- Night 1, more important: check **power**, not just timing. With a representative backup load running, confirm the unit **ramps** — compare the first ~10 minutes against steady state; a target-driven controller should climb gradually, not step to maximum — and stays below the breaker rating. The failure mode in Anker case `#TNJ909651061` was an overcurrent, not a wrong timestamp.
+- Night 1, more important: check **power**, not just timing. With a representative backup load running, confirm the unit **ramps** — compare the first ~10 minutes against steady state; a target-driven controller should climb gradually, not step to maximum — and stays below the breaker rating. The failure mode in Anker case `#<case-ref>` was an overcurrent, not a wrong timestamp.
 - Confirm the app still reports **Time of Use Mode**, not Dynamic Tariff.
 - Only then consider scheduling it.
 

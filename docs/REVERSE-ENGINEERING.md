@@ -4,6 +4,8 @@ This document is for a future LLM or developer adding functionality to this proj
 It assumes you have a real Anker SOLIX X1, an Android phone, and a Mac/Linux host.
 
 Read [`API.md`](API.md) first. Everything below is about **discovering** new calls safely.
+For the live-telemetry/MQTT investigation and its negative result, see
+[`MQTT-WAKE.md`](MQTT-WAKE.md).
 
 ## Ground rules
 
