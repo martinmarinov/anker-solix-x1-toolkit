@@ -6,6 +6,12 @@
 
 > **Redaction:** every account id, site UUID, serial number and model SKU in this document is a placeholder (`<account_id>`, `<site_uuid>`, `<inverter_sn>`, `<battery_sn>`, `<model>`). Endpoints, field names and timing are real; identities are not.
 
+> **Device execution is whole-hour — observed 2026-10-28.** The cloud **accepts and returns**
+> `:30` values (a `23:30`/`05:30` plan read back exactly as sent), but the inverter changed mode
+> at **23:00**/**05:00**. It truncates the minutes — floors to the previous hour — and only uses
+> the hour in practice. Read-back is therefore **not** proof of execution. All examples below use
+> whole hours; `:30` appears only where it is explicitly labelled as a historical/cloud-only test.
+
 ---
 
 ## 1. Verdict up front
@@ -21,6 +27,18 @@
 
 > **The one-line version:** the app and cloud can express `:30`, but the X1/D156 device applies the **previous whole hour**. A saved `23:30` switched at `23:00`; `05:30` switched at `05:00`. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 
+### Observed behaviour: accepted by the cloud ≠ executed by the device
+
+| Layer | What happened |
+|---|---|
+| Write | `device_command` sent `start_time_period: "23:30"`, `end_time_period: "05:30"` |
+| Cloud read-back | `get_utility_rate_plans` returned **23:30** / **05:30** exactly |
+| Device execution | mode changed at **23:00** / **05:00** |
+| Conclusion | the device **truncates/floors the minutes** and uses only the whole hour |
+
+This is not a rounding-to-nearest behaviour and not a read-back rounding: the cloud value is
+correct, but the device ignores the `:30`. The project therefore emits whole hours only.
+
 ---
 
 ## 0. Non-negotiable design requirement
@@ -32,7 +50,7 @@ The final product is a **replacement for one screen** — not a new energy contr
 3. **It must never send a charge-power value.** The TOU payload has no power field (§4.6). Inventing one would mean driving a different controller. The client's only job is to describe *when* and *which tariff*, and let the EMS derive *how fast*.
 4. **It must change only the boundaries.** Every other field — mode, `price_type`, seasons, `day_type`, `peak_type`, prices, `energy_unit` — is copied verbatim from the live plan. `assert_times_only()` in `poc/anker_tou.py` enforces exactly this and refuses anything else.
 5. **The UI must mirror the existing TOU editor**, with **1-hour steps** (the device's practical limit; see [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md)): same season range ("Jan – Dec"), same Weekday/Weekend split, same period rows with tariff type + start + end + price, same add/remove (the app caps at **4 periods**), same Save. Do not add a power slider, a ramp control, or a "smart" scheduler.
-6. **If the backend ever rejects `:30` on the TOU path, stop.** The answer is not to switch to Dynamic Tariff — that trades a granularity bug for an overcurrent hazard. Escalate to Anker engineering, or fall back to the split-segment encoding (§4.3).
+6. **Do not write `:30`.** The server stores it, but the device floors it to the hour. Do not switch to Dynamic Tariff for finer granularity — that trades a cosmetic limit for an overcurrent hazard.
 
 **Acceptance criteria — all four must hold before this is called working:**
 
@@ -40,7 +58,7 @@ The final product is a **replacement for one screen** — not a new energy contr
 |---|---|---|
 | 1 | Read-back | Plan returned by `get_utility_rate_plan` differs from the prior plan **only** in `start_time_period` / `end_time_period` |
 | 2 | Mode | App still reports **Time of Use**, not Dynamic Tariff; `price_type` unchanged |
-| 3 | Ramp | Charge power **rises gradually** after 23:30 — no instantaneous step to maximum |
+| 3 | Ramp | Charge power **rises gradually** after 23:00 — no instantaneous step to maximum |
 | 4 | Ceiling | With backup load present, grid draw stays below the configured limit and the breaker rating (see §4.5) |
 
 
@@ -251,13 +269,16 @@ Three independent pieces of evidence:
 2. **The literal template is `{"start_time":"…"`** — a quoted value, built by interpolation. Hour-integer APIs serialise as `{"start_time":5`.
 3. **The slider is 24 discrete ticks.** The "Jan – Dec" editor is a custom vertical range slider labelled `00 / 06 / 12 / 18 / 24` with one tick per hour, and the row label formatter always emits `:00`. Adjacent strings are German `"Stunde einstellen"` ("set the hour") — consistent with an hours-only picker.
 
-**Conclusion:** the constraint lives in the Flutter picker (`Slider` divisions / hour list), not in the payload schema and not in an integer hour field. A different client writing the same JSON can put `"23:30"` in `start_time_period`.
+**Conclusion:** the app picker emits whole hours, but the wire schema still accepts `"HH:mm"`.
+A different client can put `"23:30"` in `start_time_period` and the **cloud stores it**, but the
+**device truncates it to 23:00**. Cloud storage is not device execution.
 
 **The honest caveat — now closed for TOU:** *accepting* the string is not the same as *honouring* it. A `23:30–05:30` window ran via the **Dynamic Tariff** path (§4.4), but a TOU plan stored as `23:30`/`05:30` switched at **23:00**/**05:00**. The X1/D156 TOU scheduler floors boundaries to the previous whole hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 
 ### 4.3 Your target plan, expressed in the real schema
 
-Weekday **23:30 → 05:30 = Valley (4)**; **05:30 → 23:30 = Peak (1)**. Same for weekend unless you want a different shape.
+Weekday **23:00 → 05:00 = Valley (4)**; **05:00 → 23:00 = Peak (1)**. Same for weekend unless
+you want a different shape. These are the whole-hour values the device actually executes.
 
 ```json
 {
@@ -267,17 +288,21 @@ Weekday **23:30 → 05:30 = Valley (4)**; **05:30 → 23:30 = Peak (1)**. Same f
     "start_time": "2026-01-01 00:00:00",
     "end_time":   "2026-12-01 00:00:00",
     "peak_valley_prices": [
-      { "start_time_period": "23:30", "end_time_period": "05:30", "peak_type": 1, "day_type": 1, "buy": 0.10, "energy_unit": "kWh" },
-      { "start_time_period": "05:30", "end_time_period": "23:30", "peak_type": 4, "day_type": 1, "buy": 0.3164, "energy_unit": "kWh" },
-      { "start_time_period": "23:30", "end_time_period": "05:30", "peak_type": 1, "day_type": 2, "buy": 0.10, "energy_unit": "kWh" },
-      { "start_time_period": "05:30", "end_time_period": "23:30", "peak_type": 4, "day_type": 2, "buy": 0.3164, "energy_unit": "kWh" }
+      { "start_time_period": "23:00", "end_time_period": "05:00", "peak_type": 1, "day_type": 2, "buy": 0.10, "energy_unit": "kWh" },
+      { "start_time_period": "05:00", "end_time_period": "23:00", "peak_type": 4, "day_type": 2, "buy": 0.3164, "energy_unit": "kWh" },
+      { "start_time_period": "23:00", "end_time_period": "05:00", "peak_type": 1, "day_type": 1, "buy": 0.10, "energy_unit": "kWh" },
+      { "start_time_period": "05:00", "end_time_period": "23:00", "peak_type": 4, "day_type": 1, "buy": 0.3164, "energy_unit": "kWh" }
     ]
   }],
   "price_unit": "£/kWh"
 }
 ```
 
-Note the period wraps midnight (`23:30 → 05:30`). A wrap is normal in this schema — the app does it too. And a wrap **starting at 23:30** is no longer hypothetical: it is precisely the window that executed successfully via the Dynamic Tariff path (§4.4). If the TOU endpoint nevertheless rejects it, the fallback is two segments, `23:30→23:59` + `00:00→05:30` (both Valley).
+`day_type` 2 is Weekday, 1 is Weekend. The period wraps midnight (`23:00 → 05:00`); a wrap is
+normal in this schema. An old `23:30 → 05:30` version of this example read back exactly from the
+cloud, but the device applied **23:00 → 05:00** — do not use it. If a wrap is rejected, the
+whole-hour fallback is three rows: `00:00–05:00`, `05:00–23:00`, `23:00–24:00` (both Valley ends,
+Peak in the middle).
 
 ### 4.4 Field evidence — Anker case #TNJ909651061
 
@@ -286,7 +311,11 @@ Anker support's answer to "can TOU granularity be 30 minutes?" was to use **Dyna
 **What it proves.** On app **v3.14.0** the Dynamic Tariff feature successfully held a **23:30 → 05:30** charge window. So:
 
 - the cloud accepts `:30` boundaries, and
-- the **inverter executes them** — this is not just a database row.
+- the **Dynamic Tariff** path executed them on that older build.
+
+This is **not** evidence that TOU honours `:30`. The TOU experiment below stored `23:30`/`05:30`
+and the device switched at `23:00`/`05:00`, so cloud read-back and Dynamic Tariff behaviour must
+not be generalised to TOU.
 
 That removes the main unknown from §4.2 for the *Dynamic Tariff* scheduler, but **not for TOU**: the D156 TOU device floors `:30` to the hour in the field. The 1-hour step is therefore both a picker property and a device-execution limit.
 
@@ -299,7 +328,7 @@ That removes the main unknown from §4.2 for the *Dynamic Tariff* scheduler, but
 1. **Dynamic Tariff is off the table** — not merely because it does not match a fixed 3× off-peak tariff, but because its charge-control path bypasses the load-aware current limit. Two independent reasons.
 2. **Write the TOU rate plan, keep the mode on Time of Use.** The goal is to change *times*, not to change *mode*. Any implementation that flips `price_type`/mode to dynamic re-creates the hazard.
 3. **Add a hard electrical ceiling as defence in depth.** Whatever the mode does, the site should be configured so the battery cannot exceed the service capacity: set a **grid import / charge power limit** below the breaker rating (the app exposes import-power-limit settings; the Modbus map has import/export limit registers). Then even a misbehaving schedule trips a limit, not the breaker.
-4. **Verify the first cycle with current, not just time.** Confirming "charging started at 23:30" is not sufficient — confirm the *power* stayed within the circuit's rating while backup load was present.
+4. **Verify the first cycle with current, not just time.** Confirming "charging started at 23:00" is not sufficient — confirm the *power* stayed within the circuit's rating while backup load was present.
 
 ### 4.5 Can you limit charge power today? — yes, the controls ship in the app
 
@@ -359,7 +388,7 @@ So: **not a hidden app parameter — a different control law on the backend/devi
 
 - writing the TOU *plan* does not require reproducing any power computation — the cloud/EMS does it;
 - keeping the mode on TOU preserves the pacing;
-- a **6-hour** window (23:30–05:30) needs *less* average power than the 5-hour one, so the pacing should be gentler still.
+- a **6-hour** window (23:00–05:00) needs *less* average power than the 5-hour one, so the pacing should be gentler still.
 
 **What remains unknown:** whether `acPowerLimit` is enforced inside Dynamic Tariff (evidence suggests not, or it was set high); and whether the TOU EMS recomputes its rate when the plan is written by a third-party client — it should, since the plan is server-side state, but this is exactly what the first cycle's current measurement will confirm.
 
@@ -382,9 +411,9 @@ So: **not a hidden app parameter — a different control law on the backend/devi
 **Do A, with F used only as a lab instrument if A's write is rejected.**
 
 1. **Phase 0 (read-only, tonight):** authenticate, pull the current plan, dump it to disk. Zero risk. This alone tells you the exact live schema for *your* firmware and site (field names, `param_type`, `cmd` actually used, whether `peak_sessions` or `use_time` comes back).
-2. **Phase 1 (one controlled write):** write the legacy `:30` plan with the snapshot saved, then **read it back**. The cloud accepted `23:30`; the device still switched at `23:00`.
-3. **Phase 2 (behavioural proof):** watch one night — did grid charging actually begin at 23:30? On the D156 it began at 23:00. This is why the editor is hourly now.
-4. If Phase 1 returns an error or the read-back is rounded → re-check the wrap by splitting into `23:30→23:59` + `00:00→05:30`. Then use Modbus for monitoring and escalate the TOU-granularity gap to Anker engineering as a feature request (their Dynamic Tariff workaround is unsafe for this installation, §4.4).
+2. **Phase 1 (one controlled write):** write the whole-hour plan `23:00–05:00` with the snapshot saved, then **read it back**. Do not write `:30`; the device floors it to the hour.
+3. **Phase 2 (behavioural proof):** watch one night — did grid charging actually begin at 23:00? On the D156, an old `23:30` plan began at 23:00. This is why the editor is hourly now.
+4. If the wrap is rejected, use three whole-hour rows: `00:00–05:00`, `05:00–23:00`, `23:00–24:00`. Then use Modbus for monitoring; do not switch to Dynamic Tariff to obtain finer granularity (safety, §4.4).
 
 Why not D/C first: they are the same protocol work with more scaffolding. Build the thin writer first; if it works and you want a nicer UX, wrap it in a web page later — the protocol layer is reusable.
 
@@ -409,7 +438,7 @@ The new client should be recognisably *the same screen*, so the mental model and
 - Periods must tile the day: `00:00 → 23:59`, no gaps, no overlaps.
 - Only the off-peak/valley period may wrap midnight (starts late, ends early). A wrapping **peak** period is almost certainly a user error.
 - At most one period per `(day_type, tariff)` pair unless the backend allows splits; keep the same shape the live plan already uses.
-- Refuse to save if the live plan's schema is the integer-hour form — that is the case where the firmware genuinely cannot represent 23:30.
+- Refuse to save if the live plan's schema is the integer-hour form; that is a different payload shape, not the app's `HH:mm` form.
 
 **Explicitly out of scope:** any power, current, ramp-rate or "charge speed" control. The screen describes *when* and *at what tariff*; the target-driven controller decides *how fast*.
 
@@ -462,19 +491,19 @@ POST /charging_hes_svc/get_utility_rate_plan  {siteId, sn}
 
 Check in the response: which shape you actually get (`peak_sessions` vs `use_time`), the `param_type`, and whether times round-trip as `"HH:mm"`.
 
-### Phase 1 — the 30-minute experiment (historical; device floors)
+### Phase 1 — the hourly write
 
 ```
 POST /charging_hes_svc/update_hes_utility_rate_plan   (or /save_time_of_use)
   body = { siteId, sn, peak_sessions:[…], price_unit:"£/kWh" }
 → expect {"code":0}
-POST /charging_hes_svc/get_utility_rate_plan          → assert start_time_period == "23:30"
+POST /charging_hes_svc/get_utility_rate_plan          → assert start_time_period == "23:00"
 ```
 
 Then `device_command` (`cmd 123`) only if the app's flow requires it — **capture the app's exact body first** (see §8) rather than guessing.
 
 ### Phase 2 — behavioural verification
-- Night 1: check grid-charge **start at 23:30 and stop at 05:30** (app chart, Modbus `10002`, or your smart meter).
+- Night 1: check grid-charge **start at 23:00 and stop at 05:00** (app chart, Modbus `10002`, or your smart meter).
 - Night 1, more important: check **power**, not just timing. With a representative backup load running, confirm the unit **ramps** — compare the first ~10 minutes against steady state; a target-driven controller should climb gradually, not step to maximum — and stays below the breaker rating. The failure mode in Anker case `#TNJ909651061` was an overcurrent, not a wrong timestamp.
 - Confirm the app still reports **Time of Use Mode**, not Dynamic Tariff.
 - Only then consider scheduling it.
@@ -507,7 +536,9 @@ Given the app is Flutter AOT, Option 1 usually works because Dart's `HttpClient`
 
 **Verified on-device (2026-10-27):**
 - The TOU **write** is `POST /charging_hes_svc/device_command` with **plain JSON** (no envelope)
-  and the three field-type quirks in §11. A `23:30–05:30` plan was written and read back exactly.
+  and the three field-type quirks in §11. A whole-hour `23:00–05:00` plan was written and read
+  back exactly. An older `23:30–05:30` test also read back exactly from the cloud, but the device
+  floored it to `23:00–05:00`.
 - The plan is **site-scoped**; the inverter owns `main_sn`, battery modules do not.
 - **MQTT credentials are plaintext** when requested in plaintext; mTLS on 8883 works with a
   vanilla client; telemetry arrives as JSON + base64 `trans` every **~5 s** (§3.4).
@@ -518,8 +549,9 @@ Given the app is Flutter AOT, Option 1 usually works because Dart's `HttpClient`
 - `get_site_detail` carries metadata only — no live watts.
 
 **Still unknown (must be tested, not assumed):**
-- Whether the **inverter firmware** honours `:30`. The cloud stores `23:30`; the compact
-  device preview truncates to `23`. The first observed charge cycle settles it (§16).
+- ~~Whether the **inverter firmware** honours `:30`.~~ **Resolved: no.** The cloud stores it,
+  but the device floors TOU boundaries to the hour (`23:30→23:00`, `05:30→05:00`); see
+  [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 - Whether TOU's load-aware modulation is preserved when the plan is written by a third-party
   client. Mode stays TOU, so it should be — verify ramp on the first cycle.
 - The exact `X-Signature` construction and the session-key extraction path.
@@ -535,7 +567,9 @@ Anker's ToS prohibits reverse engineering and provides **no public cloud API**. 
 
 ## 11. Verified write path (proven 2026-10-27)
 
-The TOU plan can be written **without the app's ECDH envelope**. `device_command` accepts plain JSON — the `x-encryption-info` headers are optional — and persists **minute-level** boundaries.
+The TOU plan can be written **without the app's ECDH envelope**. `device_command` accepts plain
+JSON — the `x-encryption-info` headers are optional — and stores the exact `HH:mm` strings in the
+cloud. The device, however, executes **whole hours only**.
 
 ```
 POST /charging_hes_svc/device_command
@@ -561,7 +595,10 @@ stores **two** decimals: `0.0762 → 0.07`, `0.3123 → 0.31`, `sell 0.12` prese
 
 **Read-back is eventually consistent.** An immediate `get_plan` after a successful write often returns the **previous** plan; after ~3 s it returns the new one. The writer must poll for a few seconds before treating a difference as rejection, otherwise it rolls back a perfectly good save.
 
-**Evidence:** writing `23:30–05:30` / `05:30–23:30` and re-reading `get_utility_rate_plans` returns exactly those strings for both day types.
+**Evidence:** writing whole-hour `23:00–05:00` / `05:00–23:00` and re-reading
+`get_utility_rate_plans` returns exactly those strings for both day types. An older
+`23:30–05:30` write also read back exactly, but the device applied **23:00–05:00** — that is the
+observation behind the whole-hour limit, not a recommendation to use `:30`.
 
 **Resolved 2026-10-28:** the response echoed integer hours (`S:23, E:5`) for a reason. A stored `23:30`/`05:30` TOU plan switched at **23:00**/**05:00**; the device floors TOU boundaries to the hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 
@@ -705,14 +742,14 @@ the preferred read. The plan itself:
     "type": 2,
     "peak_valley_prices": [
       {"id": 0, "buy": 0.07, "sell": 0.12, "energy_unit": "kWh",
-       "start_time_period": "00:00", "end_time_period": "05:30",
-       "peak_type": 1, "day_type": 1},
+       "start_time_period": "00:00", "end_time_period": "05:00",
+       "peak_type": 1, "day_type": 2},
       {"id": 0, "buy": 0.31, "sell": 0.12, "energy_unit": "kWh",
-       "start_time_period": "05:30", "end_time_period": "23:30",
-       "peak_type": 4, "day_type": 1},
+       "start_time_period": "05:00", "end_time_period": "23:00",
+       "peak_type": 4, "day_type": 2},
       {"id": 0, "buy": 0.07, "sell": 0.12, "energy_unit": "kWh",
-       "start_time_period": "23:30", "end_time_period": "24:00",
-       "peak_type": 1, "day_type": 1}
+       "start_time_period": "23:00", "end_time_period": "24:00",
+       "peak_type": 1, "day_type": 2}
     ]
   }],
   "price_source_type": 5,
@@ -739,7 +776,7 @@ the preferred read. The plan itself:
 **three** periods, not one:
 
 ```
-23:30–05:30  ⇒  00:00–05:30  +  05:30–23:30  +  23:30–24:00
+23:00–05:00  ⇒  00:00–05:00  +  05:00–23:00  +  23:00–24:00
 ```
 
 The web editor enforces this by rasterising the 24 one-hour slots, splitting wraps, resolving
@@ -777,14 +814,14 @@ contains more than two. Minimal write bodies silently rounded to **one** decimal
       "type": 2,
       "peak_valley_prices": [
         {"id": 0, "buy": 0.07, "sell": 0.12, "energy_unit": "kWh",
-         "start_time_period": "00:00", "end_time_period": "05:30",
-         "peak_type": 1, "day_type": 1},
+         "start_time_period": "00:00", "end_time_period": "05:00",
+         "peak_type": 1, "day_type": 2},
         {"id": 0, "buy": 0.31, "sell": 0.12, "energy_unit": "kWh",
-         "start_time_period": "05:30", "end_time_period": "23:30",
-         "peak_type": 4, "day_type": 1},
+         "start_time_period": "05:00", "end_time_period": "23:00",
+         "peak_type": 4, "day_type": 2},
         {"id": 0, "buy": 0.07, "sell": 0.12, "energy_unit": "kWh",
-         "start_time_period": "23:30", "end_time_period": "24:00",
-         "peak_type": 1, "day_type": 1}
+         "start_time_period": "23:00", "end_time_period": "24:00",
+         "peak_type": 1, "day_type": 2}
       ]
     }],
     "price_source_type": 5,
