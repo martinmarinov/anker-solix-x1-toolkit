@@ -835,9 +835,18 @@ class Handler(BaseHTTPRequestHandler):
         # Limits are fetched separately (/api/limits) so a slow or unsupported
         # limits call can never block the editor from loading.
         limits = None
+        strategy = None
+        strategy_error = ""
+        try:
+            strategy = s["client"].get_strategy(site, sn)
+            if strategy is None:
+                strategy_error = "Anker returned no electricity_strategy object."
+        except AnkerError as e:
+            strategy_error = e.message
         self.json(200, {
             "ok": True, "site": site, "sn": sn, "endpoint": plan["endpoint"],
-            "plan": plan["data"], "main_sn": sn,
+            "plan": plan["data"], "strategy": strategy,
+            "strategy_error": strategy_error, "main_sn": sn,
             "devices": [{**d, "main": d.get("sn") == sn} for d in devices],
         })
 
@@ -852,9 +861,33 @@ class Handler(BaseHTTPRequestHandler):
         ack = bool(body.get("ack"))
         if not site or not sn or not isinstance(plan, dict):
             return self.fail(422, "site, sn and plan are required.", "validation")
+        try:
+            limit_kw = float(body.get("max_charge_kw") or CONFIG["max_charge_kw"])
+        except (TypeError, ValueError):
+            return self.fail(422, "max_charge_kw must be a number.", "validation")
+        if not 0 < limit_kw <= 20:
+            return self.fail(422, "max_charge_kw must be between 0 and 20 kW.", "validation")
         if not ack:
             return self.fail(422, "Confirm that you have verified the grid charge limit.",
                              "validation")
+        strategy_extra = {}
+        raw_strategy = body.get("strategy")
+        if raw_strategy is not None:
+            if not isinstance(raw_strategy, dict):
+                return self.fail(422, "strategy must be an object.", "validation")
+            if "conserve_percent" in raw_strategy:
+                try:
+                    reserve = int(raw_strategy["conserve_percent"])
+                except (TypeError, ValueError):
+                    return self.fail(422, "conserve_percent must be an integer.", "validation")
+                if not 0 <= reserve <= 100:
+                    return self.fail(422, "conserve_percent must be 0–100.", "validation")
+                strategy_extra["conserve_percent"] = reserve
+            if "grid_recharging" in raw_strategy:
+                grid = raw_strategy["grid_recharging"]
+                if grid not in (0, 1, True, False):
+                    return self.fail(422, "grid_recharging must be 0 or 1.", "validation")
+                strategy_extra["grid_recharging"] = int(bool(grid))
 
         try:
             devices = s["client"].devices(site) or []
@@ -879,10 +912,19 @@ class Handler(BaseHTTPRequestHandler):
                     + ". Anker's schedule write truncates prices to two decimals. Nothing was written.",
                     "precision", {"issues": issues})
 
+            # The plan body has no power field. Set the AC input ceiling FIRST
+            # so the inverter is already throttled when the new schedule lands.
+            try:
+                limit_result = s["client"].set_ac_power_limit(sn, int(round(limit_kw * 1000)))
+            except AnkerError as e:
+                return self.fail(502,
+                    "Could not set the AC charge limit; the plan was not written. "
+                    f"({e.message})", "limit", {"limit_kw": limit_kw})
+
             # Half-hour boundaries proven to persist via device_command.
 
             snap = capture(before, "before-write")
-            s["client"].put_plan(site, sn, plan)
+            s["client"].put_plan(site, sn, plan, strategy_extra or None)
 
             # The cloud applies writes asynchronously; poll briefly before
             # deciding the plan was rejected.
@@ -912,15 +954,35 @@ class Handler(BaseHTTPRequestHandler):
                                               "only_sent": list(set(sent_norm) - set(after_norm))[:8],
                                               "only_readback": list(set(after_norm) - set(sent_norm))[:8]})
 
+            after_strategy = None
+            strategy_ok = True
+            if strategy_extra:
+                try:
+                    after_strategy = s["client"].get_strategy(site, sn)
+                except AnkerError:
+                    after_strategy = None
+                strategy_ok = bool(after_strategy) and all(
+                    after_strategy.get(k) == v for k, v in strategy_extra.items())
             adjustments = price_adjustments(plan, after)
-            message = "Plan written and verified by read-back."
+            message = (f"AC charge limit set to {limit_kw:g} kW, then plan written "
+                       f"and verified by read-back.")
+            if strategy_extra and not strategy_ok:
+                message += " WARNING: EMS settings did not verify."
+            elif strategy_extra:
+                message += " EMS settings verified."
             if adjustments:
                 message += (f" Anker truncates prices to two decimals, so "
                             f"{len(adjustments)} price(s) were adjusted.")
             self.json(200, {
                 "ok": True, "verified": True, "snapshot": snap,
                 "diff": plan_diff(before, plan), "plan": after,
-                "adjustments": adjustments, "message": message,
+                "adjustments": adjustments, "limit_kw": limit_kw,
+                "limit_set": True,
+                "limit_response": limit_result,
+                "limit_error": "",
+                "strategy": after_strategy,
+                "strategy_ok": strategy_ok,
+                "message": message,
             })
         finally:
             s["lock"].release()

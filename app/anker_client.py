@@ -49,6 +49,7 @@ P_DEVICE_PARAM = "power_service/v1/site/get_site_device_param"
 P_SCHEDULE = "power_service/v1/site/get_schedule"
 P_DEVICE_COMMAND = "charging_hes_svc/device_command"
 P_GET_DEVICE_COMMAND = "charging_hes_svc/get_device_command"
+P_SET_DEVICE_ATTRS = "power_service/v1/app/device/set_device_attrs"
 P_DEVICE_ATTRS = "power_service/v1/app/device/get_device_attrs"
 P_GET_PLAN_ENERGY = "charging_energy_service/get_utility_rate_plan"
 P_SAVE_PLAN_HES = "charging_hes_svc/update_hes_utility_rate_plan"
@@ -598,7 +599,27 @@ class AnkerClient:
         raise AnkerError("Could not read a rate plan. Tried — " + " · ".join(tried),
                          kind=(last.kind if last else "api"))
 
-    def put_plan(self, site_id, sn: str, plan: dict) -> dict:
+    def set_ac_power_limit(self, sn: str, watts: int) -> dict:
+        """Set the device AC input ceiling (the app's station power limit).
+
+        The app writes this separately from the TOU plan via set_device_attrs,
+        with `ac_power_limit` in watts. Without it the inverter can recharge at
+        its full 6 kW rating and trip a domestic fuse.
+        """
+        body = {"device_sn": sn, "attributes": {"ac_power_limit": int(watts)}}
+        return self._post(P_SET_DEVICE_ATTRS, body, timeout=20, attempts=2)
+
+    def get_strategy(self, site_id, sn: str | None = None) -> dict | None:
+        """Read the live electricity_strategy object (EMS settings)."""
+        data = self._post(P_GET_DEVICE_COMMAND,
+                          {"station_id": site_id, "sn": sn},
+                          timeout=20, attempts=2).get("data")
+        if isinstance(data, dict) and isinstance(data.get("electricity_strategy"), dict):
+            return data["electricity_strategy"]
+        return None
+
+    def put_plan(self, site_id, sn: str, plan: dict,
+                 strategy: dict | None = None) -> dict:
         """Write the TOU plan exactly as the Android app does.
 
         Captured from the app's plaintext payload (2026-10-27): accuracy 5,
@@ -610,6 +631,12 @@ class AnkerClient:
         for season in plan.get("peak_sessions") or []:
             for r in season.get("peak_valley_prices") or []:
                 r["id"] = 0
+        # The Android app's exact shape: ack is null and strategy is {mode:1}.
+        # Only add the two user-editable fields when they were actually changed.
+        ems = {"mode": 1}
+        for key in ("conserve_percent", "grid_recharging"):
+            if isinstance(strategy, dict) and key in strategy:
+                ems[key] = strategy[key]
         body = {
             "station_id": site_id,
             "main_sn": None,
@@ -617,7 +644,7 @@ class AnkerClient:
             "utility_rate_plan": plan,
             "ack_peak_valley": None,
             "accuracy": 5,
-            "electricity_strategy": {"mode": 1},
+            "electricity_strategy": ems,
             "price_source_type": 5,
             "price_source_sub_type": 51,
             "version": "1.0.0",

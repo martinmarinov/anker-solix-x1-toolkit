@@ -306,6 +306,21 @@ async function loadAll(deviceSn) {
     unifyTariffPrices(state.plan);
     normalizePrices2();
     state.loaded = clone(state.plan);
+    const st = js.strategy;
+    state.strategyLoaded = (st && typeof st === "object") ? st : null;
+    const hasStrategy = !!state.strategyLoaded;
+    $("reserveSoc").disabled = !hasStrategy;
+    $("gridCharging").disabled = !hasStrategy;
+    if (hasStrategy) {
+      $("reserveSoc").value = Number(state.strategyLoaded.conserve_percent ?? 5);
+      $("gridCharging").checked = Number(state.strategyLoaded.grid_recharging ?? 1) === 1;
+      $("strategyNote").textContent = "Loaded from Anker";
+    } else {
+      $("reserveSoc").value = "";
+      $("gridCharging").checked = false;
+      $("strategyNote").textContent = js.strategy_error
+        ? `Unavailable: ${js.strategy_error}` : "Unavailable from Anker";
+    }
     state.endpoint = js.endpoint;
     state.seasonIdx = 0;
     state.limitsCheck = null;
@@ -695,6 +710,13 @@ $("addPeriod").onclick = () => {
 };
 
 $("linkDays").checked = state.linkDays;
+try {
+  const kw = localStorage.getItem("anker.maxChargeKw");
+  if (kw) $("maxChargeKw").value = kw;
+} catch { /* ignore */ }
+$("maxChargeKw").onchange = (e) => {
+  try { localStorage.setItem("anker.maxChargeKw", e.target.value); } catch { /* ignore */ }
+};
 $("linkDays").onchange = (e) => {
   state.linkDays = e.target.checked;
   try { localStorage.setItem("anker.linkDays", state.linkDays ? "1" : "0"); } catch { /* ignore */ }
@@ -904,9 +926,25 @@ async function doSave() {
   $("saveBtn").disabled = true;
   setStatus("Writing to Anker cloud…");
   try {
+    const strategy = {};
+    if (state.strategyLoaded) {
+      const reserve = Number($("reserveSoc").value);
+      if (Number.isFinite(reserve) &&
+          reserve !== Number(state.strategyLoaded.conserve_percent)) {
+        strategy.conserve_percent = reserve;
+      }
+      const grid = $("gridCharging").checked ? 1 : 0;
+      if (grid !== Number(state.strategyLoaded.grid_recharging)) {
+        strategy.grid_recharging = grid;
+      }
+    }
     const js = await api("/api/plan", {
       method: "POST",
-      body: JSON.stringify({ site: state.site, sn: state.sn, plan: state.plan, ack: true }),
+      body: JSON.stringify({
+        site: state.site, sn: state.sn, plan: state.plan, ack: true,
+        max_charge_kw: Number($("maxChargeKw").value || 4.2),
+        strategy,
+      }),
     });
     $("resultCard").classList.remove("hide");
     const adj = (js.adjustments || []).map((a) =>
@@ -919,8 +957,8 @@ async function doSave() {
       `\n\nSnapshot: ${js.snapshot}\n\nNext: confirm the app still shows "Time of Use", ` +
       `then watch the first charge cycle — it should ramp, not step to full power.`;
     setStatus(adj.length
-      ? `Saved — Anker rounded ${adj.length} price(s) to 1 decimal.`
-      : "Saved and verified.", false, true);
+      ? `Saved — Anker truncated ${adj.length} price(s) to two decimals.`
+      : "Saved, verified and charge limit applied.", false, true);
     await loadAll();
   } catch (e) {
     $("resultCard").classList.remove("hide");

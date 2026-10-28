@@ -58,6 +58,8 @@ future endpoint requires it.
 | POST | `/charging_hes_svc/get_device_command` | `{"station_id":…,"sn":"<inverter>"}` | **richest plan read** + settings |
 | POST | `/charging_hes_svc/get_utility_rate_plans` | `{"station_id":…,"sn":"<inverter>"}` | plan read |
 | POST | `/charging_hes_svc/device_command` | write body below | **plan write** |
+| POST | `/power_service/v1/app/device/set_device_attrs` | `{"device_sn":…,"attributes":{"ac_power_limit":W}}` | **AC charge power ceiling** |
+| POST | `/power_service/v1/app/device/get_device_attrs` | `{"device_sn":…,"attributes":["ac_power_limit"]}` | read attributes (may be empty on A5102) |
 | POST | `/v1/openapi/devicemanage/get_user_mqtt_info` | `{}` | MQTT broker + mTLS certs |
 | POST | `/charging_hes_svc/get_system_running_info` | encrypted | runtime snapshot (encrypted response) |
 | POST | `/charging_hes_svc/get_energy_statistics` | encrypted | energy chart |
@@ -129,6 +131,30 @@ with the inverter serial it returns the stored two-decimal values.
 
 The cloud applies writes **asynchronously**: an immediate read often returns the old plan.
 Poll for ~3–6 s before concluding a write failed.
+
+### AC charge power ceiling
+
+`ack_peak_valley` is **null** and `electricity_strategy` starts as **`{"mode":1}`**, exactly
+as the app sends it. Two EMS fields may be added when the user changes them:
+
+- `conserve_percent` — reserve SOC, integer 0–100
+- `grid_recharging` — 0 or 1
+
+The cloud **merges** these into the existing strategy. Do not send the full read object back;
+that risks overwriting untouched EMS state. The editor reads the live strategy on load,
+populates the two controls, and sends **only fields the user changed**. A save with no changes
+sends just `{"mode":1}` — the exact app shape — so reserve SOC and grid charging are untouched. The TOU body has **no power field**. The Android
+app sets the grid-charge ceiling in a separate call:
+
+```json
+POST /power_service/v1/app/device/set_device_attrs
+{"device_sn": "<inverter_sn>", "attributes": {"ac_power_limit": 4200}}
+```
+
+`ac_power_limit` is in **watts**. Without this call the inverter can recharge at its full
+6 kW rating, even though the TOU schedule is correct. The web app sets this **before**
+writing the plan, so the inverter is already throttled when the schedule lands. It is a
+separate endpoint from `device_command`; there is no documented plan-body field for it.
 
 ## Rules the app enforces
 

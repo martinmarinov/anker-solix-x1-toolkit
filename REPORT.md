@@ -811,7 +811,8 @@ Why each field matters:
 | `main_sn` | **null** | device serial | plan write lands in a legacy path |
 | `time` | **site-local `YYYY-MM-DD HH:MM:SS`** | Unix seconds string | parser takes a different branch |
 | `accuracy` | **5** | 1 | prices rounded to 1 dp |
-| `ack_peak_valley` | **null** | 1 | commit semantics differ |
+| `ack_peak_valley` | **null** | 1 | commit semantics differ; app sends null |
+| `electricity_strategy` | **`{"mode":1}`**, optionally plus `conserve_percent`/`grid_recharging` | `{}` | strategy fields reset/invalid |
 | `electricity_strategy` | **`{"mode":1}`** | `{}` | strategy fields reset/invalid |
 | period `id` | **0** | ids read from cloud | rows treated as updates, not replacements |
 | `price_source_type` / `sub_type` | **5 / 51** | absent | pricing source not applied |

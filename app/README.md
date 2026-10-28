@@ -207,7 +207,9 @@ redacted error. The UI shows it under **Diagnostics**. It contains no bodies, he
 - **Plan shape** assumes `peak_sessions[].peak_valley_prices[]`. A different firmware shape
   shows no periods — re-derive rather than force it.
 - **Max 4 periods per day type**, matching the app.
-- **No power ceiling control** for consumer accounts; grid-charge limit is installer-only.
+- **The grid-charge ceiling uses a separate call.** The editor sets
+  `set_device_attrs.ac_power_limit` (watts) *before* the plan. If a particular A5102
+  firmware ignores it, the ceiling may be BLE-only; verify the value in the Anker app.
 - **Prices: the app shows 4 decimals, the server stores 2.** `get_device_command` returns
   `buy`/`sell` truncated to two decimals; the `0.0762` shown in the Android UI is local state.
   The editor truncates to two decimals on input and sends the values back unchanged, so a
