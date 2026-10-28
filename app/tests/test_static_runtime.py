@@ -39,6 +39,62 @@ class StaticRuntimeTests(unittest.TestCase):
             refs.add(path)
         self.assertEqual(refs, EXPECTED - {"index.html"})
 
+    def test_battery_shimmer_is_directional_and_motion_safe(self):
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        self.assertIn('[data-battery="discharging"] .battery-fill::after', css)
+        self.assertIn('animation: battery-shimmer-down', css)
+        self.assertIn('[data-battery="charging"] .battery-fill::after', css)
+        self.assertIn('animation: battery-shimmer-up', css)
+        self.assertIn('animation: none !important', css)
+        self.assertIn('--battery-rgb', css)
+        self.assertIn('--battery-color', css)
+
+    def test_flow_dots_walk_towards_the_arrow(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertEqual(html.count('class="flow-dots"'), 3)
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        self.assertIn('.flow-group.active .flow-dots', css)
+        self.assertIn('animation: flow-dot-walk 1.4s linear infinite', css)
+        self.assertIn('stroke-dashoffset: -18.1px', css)
+        self.assertIn('.flow-dots { animation: none !important; }', css)
+
+    def test_indicator_cards_share_one_width_token(self):
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        self.assertIn('--tile-w:', css)
+        self.assertEqual(css.count('width: var(--tile-w)'), 3)
+        self.assertIn('grid-template-columns: minmax(0, 1fr);', css)
+
+    def test_power_meters_start_dark_with_five_segments(self):
+        html = INDEX.read_text(encoding="utf-8")
+        home = re.search(r'id="homeBars".*?</div>', html, re.S)
+        solar = re.search(r'id="solarBars".*?</div>', html, re.S)
+        grid = re.search(r'id="gridBars".*?</div>', html, re.S)
+        self.assertIsNotNone(home)
+        self.assertIsNotNone(solar)
+        self.assertIsNotNone(grid)
+        for meter in (home, solar, grid):
+            self.assertEqual(meter.group(0).count('class="power-bar"'), 5)
+        self.assertRegex(html, r'id="homeBars"[^>]*role="meter"')
+        self.assertRegex(html, r'id="solarBars"[^>]*role="meter"')
+        self.assertRegex(html, r'id="gridBars"[^>]*role="meter"')
+        for meter in ("homeBars", "solarBars", "gridBars"):
+            self.assertRegex(html, rf'id="{meter}"[^>]*aria-valuemax="5"')
+        self.assertNotIn('class="power-bar is-on"', html)
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        for level in ("green", "amber", "red", "export"):
+            self.assertIn(f'.power-bars[data-level="{level}"]', css)
+        self.assertIn('.power-bar.is-on', css)
+
+    def test_solar_icon_has_sun_cloud_and_moon_variants(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertIn('id="solarIcon"', html)
+        self.assertIn('data-icon="sun"', html)
+        for icon in ("sun", "moon", "cloud"):
+            self.assertIn(f'class="solar-icon__{icon}"', html)
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        for icon in ("sun", "moon", "cloud"):
+            self.assertIn(f'.solar-icon[data-icon="{icon}"]', css)
+
     def test_live_cards_start_empty_and_plan_controls_disabled(self):
         html = INDEX.read_text(encoding="utf-8")
         self.assertIn('id="batteryHero"', html)

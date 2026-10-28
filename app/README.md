@@ -63,9 +63,10 @@ capacity, never offered as a plan target.
 - **Elastic scaling, no build step.** The stage uses one `--u` token
   (`clamp(4.6px, min(0.598vw, 1.063vh), 14px)`), refined in JS on resize. Every card, icon,
   gap and flow stroke is a multiple of it. No `transform: scale()` for the page, so text
-  stays crisp. Reference composition is 1672×941; 4:3 and ultrawide are graceful. Narrow
-  screens (≤700 px) fall back to a stacked layout; wider tall/square windows keep the
-  around-the-house composition and balance it vertically instead of stacking the cards.
+  stays crisp. Reference composition is 1672×941; 4:3 and ultrawide are graceful. Solar,
+  Grid and Home share one width token for symmetry. Narrow screens (≤700 px) stack all
+  three full-width; wider tall/square windows keep the around-the-house composition and
+  balance it vertically.
 - **Vector-only artwork.** `static/assets/house.svg` is hand-built (walls, roof, solar array,
   windows, trees, lawn, ground). Icons are inline SVG; hills, stars and glow are inline
   SVG/CSS. No external images, fonts, CDNs or runtime AI calls.
@@ -73,13 +74,29 @@ capacity, never offered as a plan target.
   `importing/exporting/idle`, `charging/discharging/idle`, clamped SOC, per-edge flow
   activity and `live/stale/waiting/offline`. The browser renders values and sets
   `data-available`, `data-stale`, `data-solar`, `data-grid`, `data-battery`, `data-status`.
-  These are the hooks for the future animation pass. The only motion is a short battery-fill
-  transition and flow-opacity fade; there is no looping icon animation.
+  The battery accent interpolates with SOC: green above 80%, blending through amber at 30%,
+  then red at 5% (smoothstep between stops). The battery shimmer uses `data-battery`: it
+  travels down while discharging and up while charging. That is the only looping motion;
+  fill-height, colours and flow-opacity changes are short transitions. It stops when
+  idle/unavailable and is disabled by `prefers-reduced-motion`.
 - **Flows are measured, not guessed.** `home-view.js` measures the solar/grid/home cards and
   the battery shell, then redraws the SVG paths on resize/orientation change. Solar runs
   card → battery; grid runs card ↔ battery (import/export); home runs battery → card when the
-  house is consuming. The battery is the visual hub; charge/discharge is shown by its fill
-  and glow. The house is background artwork, not a flow node.
+  house is consuming. Active paths also carry a slow dotted "walking wire" in the same colour
+  as the arrow, moving toward the arrowhead. The battery is the visual hub; charge/discharge
+  is shown by its fill and glow. The house is background artwork, not a flow node.
+- **Home Load meter.** Five segments sit under the Home Load value. Below 2 kW one green
+  bar; below 3 kW two green; below 4 kW three amber; below 5 kW four amber; 5 kW and above
+  five red. It reads `view.home.w`, stays dark until a real home reading exists, and its
+  accessible meter value reports the bar count plus the kW reading.
+- **Solar meter and sky icon.** Five green segments sit under Solar. Any output above zero
+  lights one; 2.8 kW and above lights all five, with the intervening bars linear at 0.7 kW
+  steps. The same card swaps its sun for a daytime cloud (08:00–20:00) or a night moon when
+  solar is not generating. The hour comes from the site timezone.
+- **Grid meter.** Five segments sit under Grid. Export uses blue at every level:
+  linear from 1 bar above 50 W to 5 bars at 2.8 kW. Import is 1–2 green below 1/2 kW,
+  3–4 amber below 5/10 kW, and 5 red at 10 kW or above. Both directions stay dark below
+  50 W so inverter ramp-up/down does not flicker the meter.
 - **Stale is quiet but visible.** Cards and battery dim, values keep their last reading, and
   a compact status line under the battery caption becomes amber `Stale · Ns` after 30 s
   without a frame. Unavailable telemetry shows `—`, never a fake zero, and hides the flow
@@ -268,5 +285,6 @@ headers or tokens.
   schedule save no longer alters stored prices. Omitting `buy` still clears it — never omit.
 - **Live data is per-account**; a site with no inverter exposes no feed. The site timezone
   is used when the account exposes one; otherwise the clock follows the browser.
-- **No looping live animations in this milestone.** State attributes and icon part classes
-  are ready for a CSS-only M2; `prefers-reduced-motion` disables the flow/fill transitions.
+- **No looping flow/icon animations in this milestone.** The battery shimmer is the only
+  looping element; state attributes and icon part classes are ready for a CSS-only M2.
+  `prefers-reduced-motion` disables the flow/fill transitions and the shimmer.

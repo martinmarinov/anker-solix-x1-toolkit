@@ -63,6 +63,7 @@
 /* --------------------------------------------------------------- tiles */
 
 .tiles {
+  --tile-w: min(30.3%, calc(var(--u) * 50.7));
   position: absolute;
   inset: 0;
   z-index: 3;
@@ -94,7 +95,13 @@
   --card-glow: rgba(245, 184, 46, .16);
   left: 2.7%;
   top: 7.4%;
-  width: min(30.3%, calc(var(--u) * 50.7));
+  width: var(--tile-w);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  row-gap: calc(var(--u) * 1.05);
+  column-gap: calc(var(--u) * 2.1);
 }
 
 .tile--grid {
@@ -103,7 +110,13 @@
   --card-glow: rgba(74, 168, 255, .17);
   right: 2.6%;
   top: 12.2%;
-  width: min(24.2%, calc(var(--u) * 40.5));
+  width: var(--tile-w);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  row-gap: calc(var(--u) * 1.05);
+  column-gap: calc(var(--u) * 2.1);
 }
 
 .tile--home {
@@ -112,8 +125,14 @@
   --card-glow: rgba(255, 138, 61, .16);
   left: 2.4%;
   top: 66.4%;
-  width: min(33.2%, calc(var(--u) * 55.5));
+  width: var(--tile-w);
   min-height: calc(var(--u) * 18);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  row-gap: calc(var(--u) * 1.05);
+  column-gap: calc(var(--u) * 2.1);
 }
 
 .tile-icon {
@@ -123,6 +142,13 @@
   color: var(--card-accent);
 }
 .tile-icon svg { display: block; width: 100%; height: 100%; }
+
+.solar-icon svg { display: none; }
+.solar-icon[data-icon="sun"] .solar-icon__sun { display: block; }
+.solar-icon[data-icon="moon"] .solar-icon__moon { display: block; }
+.solar-icon[data-icon="cloud"] .solar-icon__cloud { display: block; }
+.solar-icon[data-icon="moon"],
+.solar-icon[data-icon="cloud"] { color: #aebed0; }
 
 .tile-body { min-width: 0; flex: 1 1 auto; }
 
@@ -170,6 +196,48 @@
   text-overflow: ellipsis;
 }
 
+/* Five-segment Home Load meter. One/two bars are green, three/four amber,
+   five red. The level is set by HomeView from view.home.w. */
+.power-bars {
+  --bar-color: var(--muted);
+  --bar-glow: transparent;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: calc(var(--u) * .7);
+  width: 100%;
+}
+.power-bars[data-level="green"] {
+  --bar-color: var(--battery);
+  --bar-glow: rgba(46, 224, 122, .42);
+}
+.power-bars[data-level="amber"] {
+  --bar-color: var(--warn);
+  --bar-glow: rgba(251, 191, 36, .42);
+}
+.power-bars[data-level="red"] {
+  --bar-color: var(--bad);
+  --bar-glow: rgba(248, 113, 113, .42);
+}
+.power-bars[data-level="export"] {
+  --bar-color: var(--grid);
+  --bar-glow: rgba(74, 168, 255, .42);
+}
+
+.power-bar {
+  height: calc(var(--u) * .7);
+  min-height: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, .12);
+  background: rgba(148, 163, 184, .14);
+  transition: background-color .35s ease, border-color .35s ease, box-shadow .35s ease;
+}
+.power-bar.is-on {
+  border-color: var(--bar-color);
+  background: var(--bar-color);
+  box-shadow: 0 0 calc(var(--u) * 1.1) var(--bar-glow);
+}
+
 .home-stage[data-available="false"] .tile {
   --card-accent: #8fa3b8;
   --card-border: rgba(148, 163, 184, .28);
@@ -188,6 +256,8 @@
 /* --------------------------------------------------------- battery hub */
 
 .battery-hero {
+  --battery-rgb: 46, 224, 122;
+  --battery-color: rgb(var(--battery-rgb));
   position: absolute;
   left: 50%;
   top: 25.3%;
@@ -202,12 +272,13 @@
   position: relative;
   width: 100%;
   aspect-ratio: .53;
-  border: 2px solid rgba(46, 224, 122, .42);
+  border: 2px solid rgba(var(--battery-rgb), .42);
   border-radius: calc(var(--u) * 1.8) calc(var(--u) * 1.8) calc(var(--u) * 2.8) calc(var(--u) * 2.8);
-  background: linear-gradient(165deg, #0d2119, #07110d 70%);
+  background: linear-gradient(165deg, rgba(var(--battery-rgb), .12), #07110d 70%);
   box-shadow:
-    0 0 calc(var(--u) * 5.2) rgba(46, 224, 122, .22),
-    inset 0 0 calc(var(--u) * 2.4) rgba(46, 224, 122, .08);
+    0 0 calc(var(--u) * 5.2) rgba(var(--battery-rgb), .22),
+    inset 0 0 calc(var(--u) * 2.4) rgba(var(--battery-rgb), .08);
+  transition: border-color .8s ease, box-shadow .8s ease;
 }
 
 .battery-cap {
@@ -217,10 +288,11 @@
   width: 38%;
   height: 3.3%;
   z-index: 2;
-  border: 2px solid rgba(46, 224, 122, .34);
+  border: 2px solid rgba(var(--battery-rgb), .34);
   border-bottom: 0;
   border-radius: calc(var(--u) * .7) calc(var(--u) * .7) 0 0;
   background: #0a1711;
+  transition: border-color .8s ease;
 }
 
 .battery-inner {
@@ -229,7 +301,8 @@
   overflow: hidden;
   border-radius: calc(var(--u) * 1.2) calc(var(--u) * 1.2) calc(var(--u) * 2.2) calc(var(--u) * 2.2);
   background: #06100c;
-  box-shadow: inset 0 0 calc(var(--u) * 2.4) rgba(46, 224, 122, .10);
+  box-shadow: inset 0 0 calc(var(--u) * 2.4) rgba(var(--battery-rgb), .10);
+  transition: box-shadow .8s ease;
 }
 
 .battery-fill {
@@ -239,19 +312,52 @@
   bottom: 0;
   z-index: 1;
   height: calc(var(--soc, 0) * 1%);
+  overflow: hidden;
   border-radius: 2px 2px 0 0;
-  background: linear-gradient(180deg, #64f09b 0%, #21d96f 38%, #10a855 100%);
-  box-shadow: 0 0 calc(var(--u) * 2.2) rgba(46, 224, 122, .55);
-  transition: height .45s ease;
+  background-color: var(--battery-color);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, .24) 0%,
+                    rgba(255, 255, 255, .02) 38%, rgba(0, 0, 0, .18) 100%);
+  box-shadow: 0 0 calc(var(--u) * 2.2) rgba(var(--battery-rgb), .55);
+  transition: height .45s ease, background-color .8s ease, box-shadow .8s ease;
 }
 
+/* The shimmer travels in the direction the battery is moving: down while
+   discharging, up while charging. It is deliberately clipped to the fill,
+   so the black headroom above the current SOC stays clean. */
 .battery-fill::after {
   content: "";
   position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, rgba(255, 255, 255, .18), transparent 22%,
-              transparent 72%, rgba(0, 0, 0, .16));
-  border-radius: inherit;
+  left: -20%;
+  right: -20%;
+  top: -65%;
+  height: 45%;
+  border-radius: 50%;
+  background: linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, .12) 24%,
+              rgba(255, 255, 255, .72) 50%, rgba(255, 255, 255, .12) 76%, transparent 100%);
+  filter: blur(3px);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.home-stage[data-battery="discharging"] .battery-fill::after {
+  opacity: .85;
+  animation: battery-shimmer-down 2.5s linear infinite;
+}
+
+.home-stage[data-battery="charging"] .battery-fill::after {
+  opacity: .85;
+  animation: battery-shimmer-up 2.5s linear infinite;
+}
+
+@keyframes battery-shimmer-down {
+  0% { transform: translateY(-20%); }
+  100% { transform: translateY(400%); }
+}
+
+@keyframes battery-shimmer-up {
+  0% { transform: translateY(400%); }
+  100% { transform: translateY(-20%); }
 }
 
 .battery-sheen {
@@ -300,17 +406,19 @@
   justify-content: center;
   gap: calc(var(--u) * .7);
   margin-top: calc(var(--u) * 1.4);
-  color: #2ee07a;
+  color: var(--battery-color);
   font-size: clamp(12px, calc(var(--u) * 3.0), 36px);
   line-height: 1;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 calc(var(--u) * 1.6) rgba(46, 224, 122, .38);
+  text-shadow: 0 0 calc(var(--u) * 1.6) rgba(var(--battery-rgb), .38);
+  transition: color .8s ease, text-shadow .8s ease;
 }
 
 .battery-power-unit {
+  color: inherit;
   font-size: .72em;
-  color: #b6f5ce;
+  opacity: .78;
 }
 
 .battery-caption {
@@ -330,12 +438,13 @@
 }
 
 .battery-caption-value {
-  color: #2ee07a;
+  color: var(--battery-color);
   font-size: clamp(12px, calc(var(--u) * 2.35), 30px);
   font-weight: 600;
   line-height: 1.15;
   letter-spacing: .01em;
   font-variant-numeric: tabular-nums;
+  transition: color .8s ease;
 }
 
 .live-status {
@@ -357,17 +466,24 @@
   border-color: rgba(148, 163, 184, .24);
   box-shadow: none;
 }
+.home-stage[data-available="false"] .battery-cap {
+  border-color: rgba(148, 163, 184, .24);
+}
 .home-stage[data-available="false"] .battery-soc,
 .home-stage[data-available="false"] .battery-power { color: #8fa3b8; }
 .home-stage[data-available="false"] .battery-power { text-shadow: none; }
 .home-stage[data-available="false"] .battery-caption-value { color: #8fa3b8; }
-.home-stage[data-stale="true"] .battery-hero { opacity: .72; }
+/* Use a filter rather than opacity so the battery keeps its opaque shell and
+   the house cannot show through it when the feed is stale. */
+.home-stage[data-stale="true"] .battery-hero {
+  filter: brightness(.70) saturate(.75);
+}
 
 .home-stage[data-battery="charging"] .battery-shell {
-  border-color: rgba(46, 224, 122, .70);
+  border-color: rgba(var(--battery-rgb), .70);
 }
 .home-stage[data-battery="discharging"] .battery-shell {
-  border-color: rgba(46, 224, 122, .56);
+  border-color: rgba(var(--battery-rgb), .56);
 }
 
 .status-dot {
@@ -424,6 +540,32 @@
   stroke-linecap: round;
   stroke-linejoin: round;
   opacity: .15;
+}
+
+/* A slow dotted walk in the same colour as the arrow. The offset is negative
+   so the dots travel toward the marker at the end of the already-directed
+   path (import/export and charge/discharge reverse the path itself). */
+.flow-dots {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: calc(var(--u) * .72);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: .1px 18px;
+  stroke-dashoffset: 0;
+  opacity: 0;
+  transition: opacity .35s ease;
+  pointer-events: none;
+}
+
+.flow-group.active .flow-dots {
+  opacity: .78;
+  animation: flow-dot-walk 1.4s linear infinite;
+}
+
+@keyframes flow-dot-walk {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -18.1px; }
 }
 
 .home-stage[data-stale="true"] .flow-layer { opacity: .48; }
@@ -552,7 +694,7 @@
     flex: none;
     order: 2;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: clamp(10px, calc(var(--u) * 1.6), 20px);
   }
   .tile,
@@ -603,5 +745,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .flow-group, .flow-layer, .battery-fill { transition: none; }
+  .flow-group, .flow-layer, .battery-fill, .battery-shell, .battery-cap,
+  .battery-inner, .battery-power, .battery-caption-value,
+  .flow-dots, .power-bar { transition: none; }
+  .flow-dots { animation: none !important; }
+  .battery-fill::after { animation: none !important; opacity: 0 !important; }
 }

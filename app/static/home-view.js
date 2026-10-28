@@ -30,7 +30,8 @@
     flowLayer = $("flowLayer");
     els = {
       solar: $("vSolar"), grid: $("vGrid"), batt: $("vBatt"), home: $("vHome"),
-      gridState: $("gridState"),
+      gridState: $("gridState"), gridBars: $("gridBars"),
+      solarIcon: $("solarIcon"), solarBars: $("solarBars"), homeBars: $("homeBars"),
       batteryHero: $("batteryHero"), batteryShell: $("batteryShell"),
       batterySoc: $("batterySoc"),
       batterySocUnit: $("batterySocUnit"), batterySummary: $("batterySummary"),
@@ -93,6 +94,175 @@
     return Number(obj.kw).toFixed(2);
   }
 
+  /* SOC accent: green above 80%, amber at 30%, red at 5%. Smoothstep
+     blends the two spans so the colour moves with the state of charge. */
+  var BATT_GREEN = [46, 224, 122];
+  var BATT_AMBER = [251, 191, 36];
+  var BATT_RED = [248, 113, 113];
+  var BATT_GRAY = [143, 163, 184];
+
+  function mixColor(a, b, t) {
+    return [
+      Math.round(a[0] + (b[0] - a[0]) * t),
+      Math.round(a[1] + (b[1] - a[1]) * t),
+      Math.round(a[2] + (b[2] - a[2]) * t)
+    ];
+  }
+
+  function smoothstep(t) {
+    t = Math.max(0, Math.min(1, t));
+    return t * t * (3 - 2 * t);
+  }
+
+  function batteryColor(soc) {
+    var value = Number(soc);
+    if (!isFinite(value)) return null;
+    value = Math.max(0, Math.min(100, value));
+    if (value >= 80) return BATT_GREEN;
+    if (value >= 30) {
+      return mixColor(BATT_GREEN, BATT_AMBER, smoothstep((80 - value) / 50));
+    }
+    if (value >= 5) {
+      return mixColor(BATT_AMBER, BATT_RED, smoothstep((30 - value) / 25));
+    }
+    return BATT_RED;
+  }
+
+  function applyBatteryColor(socOk, soc) {
+    if (!els.batteryHero) return;
+    var rgb = socOk ? batteryColor(soc) : null;
+    rgb = rgb || BATT_GRAY;
+    els.batteryHero.style.setProperty("--battery-rgb", rgb.join(", "));
+  }
+
+  function renderHomeBars(view, available) {
+    var el = els.homeBars;
+    if (!el) return;
+    var home = view.home || {};
+    var w = home.w;
+    if ((w === null || w === undefined) && home.kw !== null &&
+        home.kw !== undefined && isFinite(Number(home.kw))) {
+      w = Number(home.kw) * 1000;
+    }
+
+    var level = 0;
+    var band = "off";
+    var text = available ? "No home reading" : "Waiting for telemetry";
+    if (available && w !== null && w !== undefined && isFinite(Number(w))) {
+      var watts = Math.max(0, Number(w));
+      if (watts < 2000) { level = 1; band = "green"; }
+      else if (watts < 3000) { level = 2; band = "green"; }
+      else if (watts < 4000) { level = 3; band = "amber"; }
+      else if (watts < 5000) { level = 4; band = "amber"; }
+      else { level = 5; band = "red"; }
+      text = level + " of 5 · " + fmtKw(home) + " kW";
+    }
+
+    el.dataset.level = band;
+    el.setAttribute("aria-valuenow", String(level));
+    el.setAttribute("aria-valuetext", text);
+    var bars = el.children;
+    for (var i = 0; i < bars.length; i++) {
+      bars[i].classList.toggle("is-on", i < level);
+    }
+  }
+
+  /* Solar bars: >0 W always lights bar one; 2.8 kW and above lights all
+     five. The four steps between are linear (0.7 kW apart). */
+  function renderSolarBars(view, available) {
+    var el = els.solarBars;
+    if (!el) return;
+    var solar = view.solar || {};
+    var w = solar.w;
+    if ((w === null || w === undefined) && solar.kw !== null &&
+        solar.kw !== undefined && isFinite(Number(solar.kw))) {
+      w = Number(solar.kw) * 1000;
+    }
+
+    var level = 0;
+    var text = available ? "No solar generation" : "Waiting for telemetry";
+    if (available && w !== null && w !== undefined && isFinite(Number(w))) {
+      var watts = Math.max(0, Number(w));
+      if (watts > 0) {
+        level = Math.min(5, Math.max(1, 1 + Math.floor((watts / 2800) * 4)));
+        text = level + " of 5 · " + fmtKw(solar) + " kW";
+      }
+    }
+
+    el.dataset.level = level ? "green" : "off";
+    el.setAttribute("aria-valuenow", String(level));
+    el.setAttribute("aria-valuetext", text);
+    var bars = el.children;
+    for (var i = 0; i < bars.length; i++) {
+      bars[i].classList.toggle("is-on", i < level);
+    }
+  }
+
+  /* Grid meter. Export is one blue scale from 50 W to 2.8 kW. Import is
+     thresholded: 1/2 green, 3/4 amber, 5 red. Anything below 50 W is ignored
+     so the inverter's ramp-up/down does not flash the meter. */
+  function renderGridBars(view, available) {
+    var el = els.gridBars;
+    if (!el) return;
+    var grid = view.grid || {};
+    var w = grid.w;
+    if ((w === null || w === undefined) && grid.kw !== null &&
+        grid.kw !== undefined && isFinite(Number(grid.kw))) {
+      w = Number(grid.kw) * 1000;
+    }
+
+    var level = 0;
+    var band = "off";
+    var text = available ? "No significant grid flow" : "Waiting for telemetry";
+    var mode = grid.state === "exporting" ? "export" :
+               grid.state === "importing" ? "import" : "";
+    if (available && mode && w !== null && w !== undefined &&
+        isFinite(Number(w)) && Number(w) >= 50) {
+      var watts = Math.max(0, Number(w));
+      if (mode === "export") {
+        var step = (2800 - 50) / 4;
+        level = Math.min(5, Math.max(1, 1 + Math.floor((watts - 50) / step)));
+        band = "export";
+        text = "Exporting · " + level + " of 5 · " + fmtKw(grid) + " kW";
+      } else {
+        if (watts < 1000) { level = 1; band = "green"; }
+        else if (watts < 2000) { level = 2; band = "green"; }
+        else if (watts < 5000) { level = 3; band = "amber"; }
+        else if (watts < 10000) { level = 4; band = "amber"; }
+        else { level = 5; band = "red"; }
+        text = "Importing · " + level + " of 5 · " + fmtKw(grid) + " kW";
+      }
+    }
+
+    el.dataset.level = band;
+    el.setAttribute("aria-valuenow", String(level));
+    el.setAttribute("aria-valuetext", text);
+    var bars = el.children;
+    for (var i = 0; i < bars.length; i++) {
+      bars[i].classList.toggle("is-on", i < level);
+    }
+  }
+
+  function localHour() {
+    var opts = { hour: "2-digit", hourCycle: "h23" };
+    if (timezone) opts.timeZone = timezone;
+    try {
+      return Number(new Intl.DateTimeFormat("en-GB", opts).format(new Date()));
+    } catch (e) {
+      return new Date().getHours();
+    }
+  }
+
+  function applySolarIcon() {
+    if (!els.solarIcon) return;
+    var solar = currentView && currentView.solar;
+    var generating = !!(solar && (solar.state === "producing" ||
+      (solar.w !== null && solar.w !== undefined && Number(solar.w) > 0)));
+    var hour = localHour();
+    var icon = generating ? "sun" : (hour >= 8 && hour < 20 ? "cloud" : "moon");
+    els.solarIcon.dataset.icon = icon;
+  }
+
   function setStatus(level, label) {
     if (els.statusText) els.statusText.textContent = label || "";
     if (els.statusDot) {
@@ -129,6 +299,10 @@
         ? ((view.grid && view.grid.label) || "Idle")
         : "";
     }
+    renderHomeBars(view, available);
+    renderSolarBars(view, available);
+    renderGridBars(view, available);
+    applySolarIcon();
 
     var soc = view.soc;
     var socOk = available && soc !== null && soc !== undefined &&
@@ -137,6 +311,7 @@
     if (els.batteryHero) {
       els.batteryHero.style.setProperty("--soc", socOk ? String(Number(soc)) : "0");
     }
+    applyBatteryColor(socOk, soc);
     if (els.batterySoc) els.batterySoc.textContent = socOk ? String(Math.round(Number(soc))) : "—";
     if (els.batterySocUnit) els.batterySocUnit.hidden = !socOk;
     if (els.batterySummary) {
@@ -188,6 +363,7 @@
   }
 
   function updateClock() {
+    applySolarIcon();
     if (!els.clockTime) return;
     var now = new Date();
     var t = timeFormat().format(now);
