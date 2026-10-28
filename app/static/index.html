@@ -86,7 +86,7 @@
   .type{width:150px}
 
   /* timeline */
-  .timeline{display:grid;grid-template-columns:repeat(48,1fr);gap:1px;margin-top:12px;
+  .timeline{display:grid;grid-template-columns:repeat(24,1fr);gap:1px;margin-top:12px;
     border-radius:6px;overflow:hidden;border:1px solid var(--line)}
   .timeline i{height:26px;display:block;background:#eef2f6}
   .lab{display:flex;justify-content:space-between;font-size:10.5px;color:var(--muted);
@@ -351,29 +351,33 @@
         <div class="small muted" style="margin-top:6px">
           Prices are stored to <b>two decimals</b> by Anker (0.0762 → 0.07). Leave them
           untouched to keep the current values; editing a price truncates it to two decimals.
-          Periods always cover <b>00:00–24:00</b>; a wrap like 23:30–05:30 is split into
-          00:00–05:30 and 23:30–24:00 automatically. Each tariff has a <b>single price</b> —
+          Periods always cover <b>00:00–24:00</b>; a wrap like 23:00–05:00 is split into
+          00:00–05:00 and 23:00–24:00 automatically. Each tariff has a <b>single price</b> —
           editing any Super Off-Peak price updates every Super Off-Peak period. Buy and sell
           prices are independent, each with one value per tariff.
+          <b>Firmware practical limit: whole-hour boundaries.</b> The cloud accepts :30, but the
+          device applied 23:30 at 23:00 and 05:30 at 05:00. Existing :30 plans are floored to the
+          hour when loaded.
         </div>
 
         <div class="row" style="margin-top:10px">
           <button id="addPeriod">+ Add period</button>
-          <span class="small muted">30-minute steps · max 4 periods per day type</span>
+          <span class="small muted">1-hour steps · max 4 periods per day type</span>
         </div>
 
         <div class="timeline" id="timeline"></div>
         <div class="lab"><span>00:00</span><span>06:00</span><span>12:00</span>
-          <span>18:00</span><span>23:30</span></div>
+          <span>18:00</span><span>23:00</span></div>
       </div>
 
       <div class="card">
-        <h2>Changes <span class="sub">30-minute precision</span></h2>
+        <h2>Changes <span class="sub">1-hour precision</span></h2>
         <div class="banner good" style="margin-bottom:10px">
           <b>Write path verified.</b> Saves go through
           <code>charging_hes_svc/device_command</code> — the same call the Android app makes —
-          and persist minute-level boundaries. Every write is snapshotted, read back, and rolled
-          back automatically on mismatch.
+          and persist whole-hour boundaries. Every write is snapshotted, read back, and rolled
+          back automatically on mismatch. Half-hour values from older plans are floored to the
+          hour, matching what the device actually applies.
         </div>
         <div id="diffSummary" class="small muted">No changes yet.</div>
         <div class="row" style="margin-top:14px;align-items:center;gap:8px">

@@ -78,7 +78,7 @@ with the inverter serial it returns the stored two-decimal values.
     "end_time": "YYYY-12-01 00:00:00", "end_desc": "December",
     "peak_valley_prices": [{
       "id": 0, "buy": 0.07, "sell": 0.12, "energy_unit": "kWh",
-      "start_time_period": "00:00", "end_time_period": "05:30",
+      "start_time_period": "00:00", "end_time_period": "05:00",
       "peak_type": 1, "day_type": 1
     }]
   }],
@@ -158,9 +158,13 @@ separate endpoint from `device_command`; there is no documented plan-body field 
 
 ## Rules the app enforces
 
+- **Device granularity is one hour.** The cloud accepts `:30`, but the X1/D156 device floors
+  boundaries to the previous hour (`23:30 → 23:00`, `05:30 → 05:00`). The web editor uses
+  hourly slots; see [`FIRMWARE-LIMITS.md`](FIRMWARE-LIMITS.md).
 - **Full day, contiguous.** First period starts `00:00`, last ends `24:00`.
-  A window like `23:30–05:30` is three periods:
-  `00:00–05:30`, `05:30–23:30`, `23:30–24:00`.
+  A window like `23:00–05:00` is three periods:
+  `00:00–05:00`, `05:00–23:00`, `23:00–24:00`.
+  The cloud can store `:30`, but the device floors it to the hour; the editor does the same.
 - **One buy and one sell price per tariff type**, across both day types and all seasons.
 - Maximum **4 periods per day type**.
 - Prices are **truncated to 2 decimals** (`0.0762 → 0.07`, `0.3123 → 0.31`).

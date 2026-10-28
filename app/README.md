@@ -1,6 +1,6 @@
 # Anker SOLIX X1 — Time-of-Use editor + live monitor
 
-A self-hosted web app that edits the X1 **Time of Use** plan at **30-minute** granularity and
+A self-hosted web app that edits the X1 **Time of Use** plan at **whole-hour** granularity and
 shows a live energy-flow card. It talks to Anker's cloud with **your own account**; nothing
 about a particular user, site or device is baked in.
 
@@ -68,14 +68,14 @@ tab; the live feed pauses while you are there and resumes on return.
 1. **Site** selector when the account has more than one site.
 2. **Main inverter** shown read-only; a selector appears only with multiple inverters.
 3. **Seasons** with month ranges; **Weekday/Weekend** tabs; up to 4 periods each.
-4. **Periods**: tariff, start, end, price — 30-minute steps. Changing an end moves the next
+4. **Periods**: tariff, start, end, price — 1-hour steps. Changing an end moves the next
    period's start (and vice versa), so schedules stay contiguous.
    **Apply to both days** is on by default: every edit, add and delete applies to weekday and
    weekend together. Turn it off to edit the two day types independently.
-5. **Timeline**: 48 half-hour cells coloured by tariff; gaps and overlaps are obvious.
+5. **Timeline**: 24 one-hour cells coloured by tariff; gaps and overlaps are obvious.
    The editor enforces the app's full-day rule: the first period starts at **00:00**, the last
-   ends at **24:00**, and periods are contiguous. A wrap such as 23:30–05:30 is split into
-   00:00–05:30 and 23:30–24:00; deleting a period extends its neighbour; adding one splits the
+   ends at **24:00**, and periods are contiguous. A wrap such as 23:00–05:00 is split into
+   00:00–05:00 and 23:00–24:00; deleting a period extends its neighbour; adding one splits the
    final period. The first period's start (`00:00`) and the last period's end (`24:00`) are
    fixed and cannot be changed; with a single period both are locked. Each tariff also has a
    **single buy and single sell price** — editing any
@@ -176,7 +176,6 @@ python3 app/server.py --host 127.0.0.1 --port 8770 --secure-cookies --no-persist
 | `--no-persist` | off | memory-only sessions |
 | `--secure-cookies` | off | add `Secure` to the session cookie |
 | `--use-keychain` | off | store the at-rest key in the macOS Keychain |
-| `--allow-half-hours` | off | retained for compatibility; half-hours are supported |
 
 State lives in `~/.anker-tou/` (override with `ANKER_TOU_HOME` if set by your deployment).
 
@@ -201,8 +200,9 @@ redacted error. The UI shows it under **Diagnostics**. It contains no bodies, he
 
 ## 9. Known limitations
 
-- **Device-side half-hour support is not yet proven.** The cloud stores `23:30`; the
-  device-facing preview echoes integer hours. Watch the first charge cycle.
+- **The device only honours whole hours.** The cloud stores `23:30`, but the inverter
+  switched at `23:00`; `05:30` became `05:00`. The editor now uses hourly slots and floors
+  existing `:30` plans on load. See [`docs/FIRMWARE-LIMITS.md`](../docs/FIRMWARE-LIMITS.md).
 - **Anker's API is private.** Endpoints can change; there is no SLA.
 - **Plan shape** assumes `peak_sessions[].peak_valley_prices[]`. A different firmware shape
   shows no periods — re-derive rather than force it.

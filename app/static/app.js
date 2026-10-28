@@ -17,9 +17,11 @@ const tariff = (v) => TARIFFS.find((t) => t.v === Number(v)) || TARIFFS[0];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
   "Oct", "Nov", "Dec"];
 
+// The D156/X1 device quantises boundaries to whole hours even when the cloud
+// stores :30. The editor therefore works in 24 one-hour slots.
 const TIMES = [];
-for (let h = 0; h < 24; h++) for (const m of ["00", "30"]) TIMES.push(`${String(h).padStart(2, "0")}:${m}`);
-const END_TIMES = TIMES.concat(["23:59", "24:00"]);
+for (let h = 0; h < 24; h++) TIMES.push(`${String(h).padStart(2, "0")}:00`);
+const END_TIMES = TIMES.slice(1).concat(["24:00"]);
 
 const state = {
   user: null, sites: [], site: null, sn: null,
@@ -126,7 +128,7 @@ function toMin(t) {
 
 function fmtMin(m) {
   const h = Math.floor(m / 60), mm = m % 60;
-  return `${String(h).padStart(2, "0")}:${mm ? "30" : "00"}`;
+  return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
 // Make one day type cover 00:00-24:00 exactly. Wrap-around rows are split,
@@ -135,16 +137,18 @@ function fmtMin(m) {
 function canonicalizeDay(seasonObj, dayType) {
   const rows = (seasonObj.peak_valley_prices || [])
     .filter((r) => Number(r.day_type) === dayType);
-  if (!rows.length) return { gaps: 48, count: 0 };
-  const slots = new Array(48).fill(null);
+  if (!rows.length) return { gaps: 24, count: 0 };
+  const slots = new Array(24).fill(null);
   rows.forEach((r) => {
-    const a = toMin(r.start_time_period), b = toMin(r.end_time_period);
+    // Floor to the hour: the device treated 23:30 as 23:00 and 05:30 as 05:00.
+    const a = Math.floor(toMin(r.start_time_period) / 60);
+    const b = Math.floor(toMin(r.end_time_period) / 60);
     if (a === b) return;
     if (b > a) {
-      for (let m = a; m < b; m += 30) slots[m / 30] = r;
+      for (let h = a; h < b; h++) slots[h] = r;
     } else {
-      for (let m = a; m < 1440; m += 30) slots[m / 30] = r;
-      for (let m = 0; m < b; m += 30) slots[m / 30] = r;
+      for (let h = a; h < 24; h++) slots[h] = r;
+      for (let h = 0; h < b; h++) slots[h] = r;
     }
   });
   const gaps = slots.filter((x) => !x).length;
@@ -152,13 +156,13 @@ function canonicalizeDay(seasonObj, dayType) {
 
   const out = [];
   let cur = null;
-  for (let i = 0; i < 48; i++) {
+  for (let i = 0; i < 24; i++) {
     const r = slots[i];
     const key = `${r.peak_type}|${r.buy}|${r.sell}|${r.energy_unit}`;
     if (cur && cur.key === key) {
-      cur.end = (i + 1) * 30;
+      cur.end = (i + 1) * 60;
     } else {
-      cur = { key, start: i * 30, end: (i + 1) * 30, src: r };
+      cur = { key, start: i * 60, end: (i + 1) * 60, src: r };
       out.push(cur);
     }
   }
@@ -696,8 +700,8 @@ $("addPeriod").onclick = () => {
     const last = list[list.length - 1];
     if (!last) continue;
     const a = toMin(last.start_time_period), b = toMin(last.end_time_period);
-    if (b - a < 60) { setStatus("Not enough room to split the final period.", true); return; }
-    const mid = a + Math.floor((b - a) / 60) * 30;
+    if (b - a < 120) { setStatus("Not enough room to split the final period — minimum is one hour per side.", true); return; }
+    const mid = a + Math.max(60, Math.floor((b - a) / 120) * 60);
     const oldEnd = last.end_time_period;
     last.end_time_period = fmtMin(mid);
     s.peak_valley_prices.push({
@@ -738,15 +742,15 @@ function renderTimeline() {
   host.innerHTML = "";
   const s = season();
   const rows = s ? rowsFor(s, state.dayType).map((x) => x.r) : [];
-  for (let i = 0; i < 48; i++) {
-    const m = i * 30;
+  for (let i = 0; i < 24; i++) {
+    const m = i * 60;
     const hit = rows.find((r) => {
       const a = toMin(r.start_time_period), b = toMin(r.end_time_period);
       return a <= b ? (m >= a && m < b) : (m >= a || m < b);
     });
     const cell = document.createElement("i");
     if (hit) cell.className = tariff(hit.peak_type).tl;
-    cell.title = `${String(Math.floor(m / 60)).padStart(2, "0")}:${m % 60 === 0 ? "00" : "30"}`;
+    cell.title = `${String(Math.floor(m / 60)).padStart(2, "0")}:00`;
     host.appendChild(cell);
   }
 }
@@ -792,7 +796,8 @@ function renderChanges() {
   // charging_hes_svc/device_command (LargeTouRepository.saveTouPlan ->
   // saveTouMode -> sendDeviceCommand). This build still targets
   // update_hes_utility_rate_plan, so writing would be unverified.
-  // device_command proven working with minute precision (2026-10-27).
+  // device_command stores exact strings, but the D156 device applies whole hours
+  // (23:30→23:00, 05:30→05:00). The editor therefore only emits hourly boundaries.
   $("saveBtn").disabled = changes.length === 0;
   $("saveBtn").textContent = "Write & verify";
   $("discardBtn").disabled = changes.length === 0;
@@ -834,6 +839,12 @@ function validate() {
         const b = toMin(rows[i].end_time_period);
         if (b <= a) {
           return `${label}: a period cannot wrap past midnight — split it into 00:00–end and start–24:00.`;
+        }
+        if (a % 60 !== 0 || b % 60 !== 0) {
+          return `${label}: boundaries must be whole hours (the device rounds :30 down).`;
+        }
+        if (b - a < 60) {
+          return `${label}: each period must be at least one hour.`;
         }
         if (i < rows.length - 1 && b !== toMin(rows[i + 1].start_time_period)) {
           return `${label}: periods must be contiguous — ${fmtMin(b)} does not meet the next start.`;

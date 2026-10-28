@@ -43,7 +43,7 @@ KEYCHAIN_ACCOUNT = "session-key"
 COOKIE = "anker_tou_sid"
 
 CONFIG = {"host": "127.0.0.1", "port": 8770, "max_charge_kw": 4.2, "persist": True,
-          "allow_half_hours": False, "secure_cookie": False}
+          "secure_cookie": False}
 
 
 def half_hour_offenders(plan: dict) -> list[str]:
@@ -110,6 +110,26 @@ def price_precision_issues(plan: dict) -> list:
                 if abs(v * 100 - round(v * 100)) > 1e-9:
                     out.append({"day_type": r.get("day_type"), "peak_type": r.get("peak_type"),
                                 "field": key, "from": v, "to": _buy2(v)})
+    return out
+
+
+def hourly_boundary_issues(plan: dict) -> list:
+    """The device applies whole hours; reject :30 before touching the cloud."""
+    out = []
+    for season in plan.get("peak_sessions") or []:
+        for r in season.get("peak_valley_prices") or []:
+            for field in ("start_time_period", "end_time_period"):
+                value = str(r.get(field) or "")
+                if value == "24:00":
+                    continue
+                try:
+                    hh, mm = value.split(":")[:2]
+                    int(hh); int(mm)
+                except (TypeError, ValueError):
+                    out.append({"field": field, "value": value})
+                    continue
+                if int(mm) != 0:
+                    out.append({"field": field, "value": value})
     return out
 
 
@@ -904,6 +924,13 @@ class Handler(BaseHTTPRequestHandler):
             before = live["data"]
             assert_plan_only(before, plan)
 
+            boundary_issues = hourly_boundary_issues(plan)
+            if boundary_issues:
+                return self.fail(422,
+                    "This device only supports whole-hour boundaries; the :30 values were "
+                    "floored by the firmware. Nothing was written.",
+                    "hourly", {"issues": boundary_issues[:8]})
+
             issues = price_precision_issues(plan)
             if issues:
                 return self.fail(409,
@@ -998,8 +1025,6 @@ def main():
                     help="do not remember the session across restarts")
     ap.add_argument("--use-keychain", action="store_true",
                     help="keep the session-encryption key in the macOS Keychain")
-    ap.add_argument("--allow-half-hours", action="store_true",
-                    help="permit non-hourly boundaries (only after the write path is verified)")
     ap.add_argument("--secure-cookies", action="store_true",
                     help="mark the session cookie Secure (use behind HTTPS)")
     ap.add_argument("--probe", action="store_true",
@@ -1008,8 +1033,7 @@ def main():
 
     CONFIG.update(host=args.host, port=args.port, max_charge_kw=args.max_charge_kw,
                   persist=not args.no_persist, use_keychain=args.use_keychain,
-                  startup_probe=args.probe, allow_half_hours=args.allow_half_hours,
-                  secure_cookie=args.secure_cookies)
+                  startup_probe=args.probe, secure_cookie=args.secure_cookies)
     if args.host not in ("127.0.0.1", "localhost", "::1"):
         log("WARNING: binding to a non-loopback address exposes the UI to your network.")
         log("         There is no TLS. Prefer an SSH tunnel.")

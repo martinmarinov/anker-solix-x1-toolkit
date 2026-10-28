@@ -1,4 +1,4 @@
-# Anker SOLIX X1 — Cloud Protocol Reverse Engineering & 30-Minute TOU Plan
+# Anker SOLIX X1 — Cloud Protocol Reverse Engineering & TOU Plan (device: hourly)
 
 **Target:** `com.anker.charging` v3.24.3 (code 237) · Flutter 3.24 / Dart 3.11.0 AOT · device family **X1 / X1-H**
 **Method:** static RE of the pulled APK splits (Dart AOT via `blutter`, RN bundle, dex, resources) + cross-check against the public `anker-solix-api` implementation.
@@ -12,14 +12,14 @@
 
 | Question | Answer |
 |---|---|
-| Is the 1-hour step a hardware limit? | **No — it is a client-side UI constraint.** The wire format carries `start_time_period` / `end_time_period` as **`"HH:mm"` strings** and the serializer copies them **verbatim** into the JSON. Nothing in the app truncates minutes at the protocol layer. *(seen)* |
-| Can a 30-minute boundary be represented? | **Yes — and it has already executed in the field.** On app v3.14.0 a `23:30–05:30` window was set and ran through the **Dynamic Tariff** path (Anker case `#TNJ909651061`). The scheduler and the inverter both handle half-hours. The open question narrows to whether the **Time-of-Use** endpoint accepts the same values — and it uses the same time encoding, so it should. |
-| What actually enforces 1 hour? | The Flutter slider widget on the "Jan – Dec" plan editor, which snaps to 24 hourly ticks and always renders `:00`. *(seen: screenshot + `Stunde einstellen` / hour-ticks + model has no hour field)* |
+| Is the 1-hour step a hardware limit? | **Effectively yes for TOU.** The wire format carries `"HH:mm"` strings and the cloud stores `:30` verbatim, but the X1/D156 device floors TOU boundaries to the previous whole hour. The app’s picker is also hourly. *(seen in cloud and on device)* |
+| Can a 30-minute boundary be represented? | **In the cloud: yes. On the device: no.** A `23:30–05:30` window ran via the **Dynamic Tariff** path (Anker case `#TNJ909651061`), but a TOU plan stored as `23:30`/`05:30` switched at **23:00**/**05:00**. The device floors TOU boundaries to the hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md). |
+| What actually enforces 1 hour? | **The device’s TOU scheduler** (a `23:30` plan switched at `23:00`) plus the app’s hourly picker. The protocol still accepts `HH:mm`; only the device execution is hourly. |
 | Can I control the X1 from outside the app? | **Yes, two ways:** (a) the app's own cloud API, which the app uses for this exact screen; (b) **official local Modbus TCP** — sanctioned by Anker, but you must get it enabled by your installer. |
 | Should I patch the Anker app? | **No.** Flutter AOT snapshot, no Dart source, signed APK, breaks on every update. Worst effort/benefit ratio of all options. |
-| Lowest-cost / highest-success route? | **A small "plan writer" that reuses the app's cloud call, snapshots the current plan, writes the 30-min version, reads it back, and can roll back** — i.e. a one-shot script or a tiny web page. Not a new full app. |
+| Lowest-cost / highest-success route? | **A small "plan writer" that reuses the app's cloud call, snapshots the current plan, writes the hourly version, reads it back, and can roll back** — i.e. a one-shot script or a tiny web page. Not a new full app. |
 
-> **The one-line version:** the app's TOU editor is a slider that rounds to the hour, but the payload it sends is `"HH:mm"`. A 23:30–05:30 plan is *expressible*; it is just not *expressible through that slider*. Write the same JSON yourself.
+> **The one-line version:** the app and cloud can express `:30`, but the X1/D156 device applies the **previous whole hour**. A saved `23:30` switched at `23:00`; `05:30` switched at `05:00`. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 
 ---
 
@@ -31,7 +31,7 @@ The final product is a **replacement for one screen** — not a new energy contr
 2. **It must never use the Dynamic Tariff / window-driven scheduler.** No `save_dynamic_price`, no `charging_hes_dynamic_price_svc/*`, no mode flip. That scheduler is window-driven: it saturates at maximum and forces grid charging on (see §4.6).
 3. **It must never send a charge-power value.** The TOU payload has no power field (§4.6). Inventing one would mean driving a different controller. The client's only job is to describe *when* and *which tariff*, and let the EMS derive *how fast*.
 4. **It must change only the boundaries.** Every other field — mode, `price_type`, seasons, `day_type`, `peak_type`, prices, `energy_unit` — is copied verbatim from the live plan. `assert_times_only()` in `poc/anker_tou.py` enforces exactly this and refuses anything else.
-5. **The UI must mirror the existing TOU editor**, with 30-minute steps as the *only* behavioural difference: same season range ("Jan – Dec"), same Weekday/Weekend split, same period rows with tariff type + start + end + price, same add/remove (the app caps at **4 periods**), same Save. Do not add a power slider, a ramp control, or a "smart" scheduler.
+5. **The UI must mirror the existing TOU editor**, with **1-hour steps** (the device's practical limit; see [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md)): same season range ("Jan – Dec"), same Weekday/Weekend split, same period rows with tariff type + start + end + price, same add/remove (the app caps at **4 periods**), same Save. Do not add a power slider, a ramp control, or a "smart" scheduler.
 6. **If the backend ever rejects `:30` on the TOU path, stop.** The answer is not to switch to Dynamic Tariff — that trades a granularity bug for an overcurrent hazard. Escalate to Anker engineering, or fall back to the split-segment encoding (§4.3).
 
 **Acceptance criteria — all four must hold before this is called working:**
@@ -253,7 +253,7 @@ Three independent pieces of evidence:
 
 **Conclusion:** the constraint lives in the Flutter picker (`Slider` divisions / hour list), not in the payload schema and not in an integer hour field. A different client writing the same JSON can put `"23:30"` in `start_time_period`.
 
-**The honest caveat — now largely closed:** *accepting* the string is not the same as *honouring* it. But this exact question has already been answered in the field: a `23:30–05:30` window ran on real hardware via the Dynamic Tariff path (§4.4). The inverter's scheduler is half-hour capable. What is still untested is the **Time-of-Use endpoint** specifically — same encoding, different service and mode flag — which is a 10-minute config write with snapshot and rollback.
+**The honest caveat — now closed for TOU:** *accepting* the string is not the same as *honouring* it. A `23:30–05:30` window ran via the **Dynamic Tariff** path (§4.4), but a TOU plan stored as `23:30`/`05:30` switched at **23:00**/**05:00**. The X1/D156 TOU scheduler floors boundaries to the previous whole hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 
 ### 4.3 Your target plan, expressed in the real schema
 
@@ -288,7 +288,7 @@ Anker support's answer to "can TOU granularity be 30 minutes?" was to use **Dyna
 - the cloud accepts `:30` boundaries, and
 - the **inverter executes them** — this is not just a database row.
 
-That removes the main unknown from §4.2. The scheduler is half-hour capable; the 1-hour step in the TOU editor is a property of that one picker widget.
+That removes the main unknown from §4.2 for the *Dynamic Tariff* scheduler, but **not for TOU**: the D156 TOU device floors `:30` to the hour in the field. The 1-hour step is therefore both a picker property and a device-execution limit.
 
 **What it also reveals — and why Dynamic Tariff is not a workaround.** In Dynamic Tariff the X1 charged at a flat **6 kW** with no regard for the rest of the supply. On 29 Nov, with ~2 kW of backup load running, the unit pulled **a bit over 8 kW** (6 kW charge + ~2 kW backup) through a circuit protected by a **32 A** breaker (≈7.4 kW at 230 V) for over an hour, until overcurrent protection tripped and took the X1 off grid — requiring a manual breaker reset in the main board.
 
@@ -382,15 +382,15 @@ So: **not a hidden app parameter — a different control law on the backend/devi
 **Do A, with F used only as a lab instrument if A's write is rejected.**
 
 1. **Phase 0 (read-only, tonight):** authenticate, pull the current plan, dump it to disk. Zero risk. This alone tells you the exact live schema for *your* firmware and site (field names, `param_type`, `cmd` actually used, whether `peak_sessions` or `use_time` comes back).
-2. **Phase 1 (one controlled write):** write the 30-min plan with the snapshot saved, then **read it back**. If the read-back shows `23:30`, the cloud accepted it.
-3. **Phase 2 (behavioural proof):** watch one night — did grid charging actually begin at 23:30? Confirm via energy stats / Modbus / the app's own chart. This is what proves the *inverter* honoured it, not just the database.
+2. **Phase 1 (one controlled write):** write the half-hour plan with the snapshot saved, then **read it back**. The cloud accepted `23:30`; the device still switched at `23:00`.
+3. **Phase 2 (behavioural proof):** watch one night — did grid charging actually begin at 23:30? On the D156 it began at 23:00. This is why the editor is hourly now.
 4. If Phase 1 returns an error or the read-back is rounded → re-check the wrap by splitting into `23:30→23:59` + `00:00→05:30`. Then use Modbus for monitoring and escalate the TOU-granularity gap to Anker engineering as a feature request (their Dynamic Tariff workaround is unsafe for this installation, §4.4).
 
 Why not D/C first: they are the same protocol work with more scaffolding. Build the thin writer first; if it works and you want a nicer UX, wrap it in a web page later — the protocol layer is reusable.
 
-> **Implemented.** `app/` contains the local web editor described here (stdlib server + single page, 30-minute selects, live diff, acknowledgement gate, read-back verification with automatic rollback). Run `./pandacode-run.sh` → <http://127.0.0.1:8770>. Security model, deployment and the error matrix are in `app/README.md`.
+> **Implemented.** `app/` contains the local web editor described here (stdlib server + single page, **1-hour selects**, live diff, acknowledgement gate, read-back verification with automatic rollback). The 30-minute target UX below is the original design and is now superseded by the device limit. Run `./pandacode-run.sh` → <http://127.0.0.1:8770>. Security model, deployment and the error matrix are in `app/README.md`.
 
-### Target UX — the existing screen, with half-hour steps
+### Target UX (original design) — half-hour steps, superseded
 
 The new client should be recognisably *the same screen*, so the mental model and the payload stay aligned. Concretely:
 
@@ -399,8 +399,8 @@ The new client should be recognisably *the same screen*, so the mental model and
 | Season range | "Jan – Dec" (or the installed plan's range), editable at season boundaries only — same as today |
 | Day split | Weekday / Weekend segmented control, each with its own period list (`day_type` 1 / 2) |
 | Period list | One row per period: colour dot, tariff label (**Super Off-Peak**, Peak, Mid-Peak, Off-Peak), `HH:mm – HH:mm`, overflow menu for delete |
-| Period picker | **30-minute steps** — the only behavioural change. 48 slots, not 24; `:00` and `:30` both selectable |
-| Vertical slider | Same affordance as today, but 48 half-hour ticks and handles that snap to 30 min |
+| Period picker | **1-hour steps** in the current build. The original 30-minute/48-slot design was dropped after the device floored `:30`; see [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md) |
+| Vertical slider | 24 one-hour ticks in the current build |
 | Add period | "+ Add Period", capped at **4** (matches the app's own limit: "A maximum of 4 time periods can be configured") |
 | Pricing | Per tariff: buy price + unit (`£/kWh`), exactly as the current Pricing section |
 | Save | Single sticky action → TOU rate-plan write → read back → show result |
@@ -462,7 +462,7 @@ POST /charging_hes_svc/get_utility_rate_plan  {siteId, sn}
 
 Check in the response: which shape you actually get (`peak_sessions` vs `use_time`), the `param_type`, and whether times round-trip as `"HH:mm"`.
 
-### Phase 1 — the 30-minute write
+### Phase 1 — the 30-minute experiment (historical; device floors)
 
 ```
 POST /charging_hes_svc/update_hes_utility_rate_plan   (or /save_time_of_use)
@@ -563,7 +563,7 @@ stores **two** decimals: `0.0762 → 0.07`, `0.3123 → 0.31`, `sell 0.12` prese
 
 **Evidence:** writing `23:30–05:30` / `05:30–23:30` and re-reading `get_utility_rate_plans` returns exactly those strings for both day types.
 
-**Caveat still open:** the response echoes a compact `rate_plan` with **integer hours** (`S:23, E:5`). That is a device-facing preview; the cloud plan keeps `23:30`. Whether the inverter itself honours the half-hour is the remaining on-device test — watch the first charge cycle.
+**Resolved 2026-10-28:** the response echoed integer hours (`S:23, E:5`) for a reason. A stored `23:30`/`05:30` TOU plan switched at **23:00**/**05:00**; the device floors TOU boundaries to the hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 
 ## 12. Live telemetry contract (implemented)
 
@@ -742,7 +742,7 @@ the preferred read. The plan itself:
 23:30–05:30  ⇒  00:00–05:30  +  05:30–23:30  +  23:30–24:00
 ```
 
-The web editor enforces this by rasterising the 48 half-hour slots, splitting wraps, resolving
+The web editor enforces this by rasterising the 24 one-hour slots, splitting wraps, resolving
 overlaps in favour of the edited row, and coalescing neighbours with the same tariff/price.
 The first row's start and the last row's end are fixed labels, not dropdowns; a single period is
 therefore locked at 00:00–24:00 and only its tariff and prices are editable.
@@ -813,7 +813,6 @@ Why each field matters:
 | `accuracy` | **5** | 1 | prices rounded to 1 dp |
 | `ack_peak_valley` | **null** | 1 | commit semantics differ; app sends null |
 | `electricity_strategy` | **`{"mode":1}`**, optionally plus `conserve_percent`/`grid_recharging` | `{}` | strategy fields reset/invalid |
-| `electricity_strategy` | **`{"mode":1}`** | `{}` | strategy fields reset/invalid |
 | period `id` | **0** | ids read from cloud | rows treated as updates, not replacements |
 | `price_source_type` / `sub_type` | **5 / 51** | absent | pricing source not applied |
 
@@ -832,7 +831,7 @@ Why each field matters:
 
 ## 16. Open questions
 
-1. **Does the inverter honour `:30`?** The cloud stores it; the device-facing compact preview echoes integer hours (`S:23, E:5`). Only an observed charge cycle settles it.
+1. **Does the inverter honour `:30`?** **Resolved: no.** The cloud stores it, but a live TOU plan with `23:30`/`05:30` switched at `23:00`/`05:00` — the device floors to the previous hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 2. **Signature scheme.** Key and message layout for `X-Signature` remain unknown.
 3. **Session key extraction.** The body key sits behind packer-encrypted preferences.
 4. **Plaintext reads.** Whether `get_system_running_info` answers plaintext when asked in plaintext is untested (MQTT removed the need).

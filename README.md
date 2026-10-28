@@ -1,7 +1,7 @@
 # Anker SOLIX X1 — self-hosted toolkit
 
 A self-hosted toolkit for the Anker SOLIX X1. The first module is a **Time-of-Use editor**
-with 30-minute boundaries; the same backend also exposes **live telemetry** and a documented
+with whole-hour boundaries (the device's practical limit); the same backend also exposes **live telemetry** and a documented
 reverse-engineered API surface for future modules.
 
 It talks to Anker's cloud with **your own account**. Nothing about a particular user,
@@ -13,7 +13,7 @@ site or device is built in.
 ## Current modules
 
 - **Plan editor** — reads the site, inverter and TOU plan from your Anker account.
-- Edits periods at 30-minute boundaries, with the app's full-day rules (00:00–24:00,
+- Edits periods at whole-hour boundaries, with the app's full-day rules (00:00–24:00,
   contiguous, wraps split, one buy/sell price per tariff).
 - Writes through the same `charging_hes_svc/device_command` call the Android app uses,
   then polls the read-back and rolls back on a real mismatch.
@@ -59,6 +59,7 @@ encrypted sessions, Anker API calls and MQTT. Use a small VPS/container, or run 
 |---|---|
 | [`docs/API.md`](docs/API.md) | Reverse-engineered endpoints, schemas, MQTT telemetry |
 | [`docs/REVERSE-ENGINEERING.md`](docs/REVERSE-ENGINEERING.md) | Playbook for continuing the RE with a real device, mitmproxy and Frida |
+| [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md) | Why the device only honours whole-hour boundaries |
 | [`REPORT.md`](REPORT.md) | Full investigation, evidence and findings |
 | [`app/README.md`](app/README.md) | App architecture, security model, operation |
 
@@ -67,7 +68,8 @@ encrypted sessions, Anker API calls and MQTT. Use a small VPS/container, or run 
 - Anker stores TOU prices to **two decimals**, truncated: 7.62p becomes 7p.
 - The cloud is **eventually consistent**; writes are verified by polling.
 - The API is private and undocumented. Expect breakage.
-- The inverter's half-hour behaviour is still being observed on-device.
+- **Scheduling is effectively one-hour granularity.** The cloud stores `:30`, but the
+  D156/X1 device applies the previous whole hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 
 ## License
 
