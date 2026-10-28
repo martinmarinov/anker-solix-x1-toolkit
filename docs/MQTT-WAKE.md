@@ -82,18 +82,19 @@ Using the account certificate from the local web feed:
   - wildcard `dt/anker_power/<pn>/<sn>/#` → **`SUBACK 128`**
   - wildcard `dt/anker_power/+/+/#` → **`SUBACK 128`**
   - `cmd/anker_power/<thing>/req` → **`SUBACK 128`**
-- Appending a suffix (`-web`, `_web`, `1`) keeps the exact `dt` topics authorized.
-  The feed can therefore coexist with the phone app instead of taking over its
-  client-id.
+- Appending a **unique** suffix (`-web-<instance>`) keeps the exact `dt` topics
+  authorized. The feed can therefore coexist with the phone app instead of
+  taking over its client-id. A fixed suffix can collide with a stale broker
+  session after a restart and leave the feed stuck in `connecting`.
 
 The certificate is valid until 2035 and matches the app's current certificate, so
 this is **not** expiry. The missing pieces were the **client-id ACL** and the
 **wildcard rejection**, not the certificate.
 
 `app/live.py` now builds the client-id from `app_name`, `user_id` and
-`certificate_id`, adds `-web`, subscribes to the three exact `dt` topics, and
-reports `mqtt subscription denied` if any SUBACK is 128 instead of waiting
-silently.
+`certificate_id`, adds a unique `-web-<instance>` suffix, subscribes to the four
+exact `dt` topics including `troubleshot_info/ems_second`, and reports
+`mqtt subscription denied` if any SUBACK is 128 instead of waiting silently.
 
 ## How to capture the fresh identity
 
@@ -124,9 +125,9 @@ Logging in this way may invalidate the phone app session; that is expected.
 Then test the current certificate against `cmd` before changing the web app:
 
 ```text
-client-id: android-<app_name>-<user_id>-<certificate_id>-web
-subscribe: cmd/anker_power/<thing_name>/req
-           cmd/anker_power/<thing_name>/res
+client-id: android-<app_name>-<user_id>-<certificate_id>-web-<instance>
+subscribe: dt/anker_power/<pn>/<sn>/troubleshot_info/ems_second
+wake:      cmd/anker_power/<pn>/<sn>/req
 ```
 
 If those return `SUBACK 0` and frames, the web feed can use `cmd`; if they still

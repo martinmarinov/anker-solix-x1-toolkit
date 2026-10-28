@@ -106,6 +106,9 @@ class LiveFeed:
         self._mqtt = None
         self._connected_at: float | None = None
         self._last_trigger_at = 0.0
+        # A fixed suffix lets an old broker session collide with a restarted
+        # feed. Keep an instance-unique suffix so reconnects are clean.
+        self._client_suffix = f"-web-{secrets.token_hex(3)}"
 
     # -- lifecycle -----------------------------------------------------
 
@@ -182,15 +185,15 @@ class LiveFeed:
             paths.append(path)
         return tuple(paths)
 
-    @staticmethod
-    def _client_id(info: dict) -> str:
+    def _client_id(self, info: dict) -> str:
         """Build the app's authorized MQTT identity.
 
         The broker ACL is keyed on the app's generated client-id:
         ``android-<app_name>-<user_id>-<certificate_id>``. The old
         ``thing_name_<random>`` form connects but gets SUBACK 128 (denied)
-        for every subscription. A suffix is allowed, so ``-web`` lets the
-        feed coexist with the phone app instead of taking over its session.
+        for every subscription. A suffix is allowed, so a unique ``-web-*``
+        suffix lets the feed coexist with the phone app without colliding
+        with a previous feed session.
         """
         account = info.get("user_id") or str(info.get("thing_name", "")).split(
             "-anker_power")[0]
@@ -198,7 +201,7 @@ class LiveFeed:
         if not cert_id:
             raise ValueError("get_user_mqtt_info returned no certificate_id")
         app_name = info.get("app_name") or "anker_power"
-        return f"android-{app_name}-{account}-{cert_id}-web"
+        return f"android-{app_name}-{account}-{cert_id}{self._client_suffix}"
 
     def _on_connect(self, client, userdata, flags, rc) -> None:
         if rc != 0:

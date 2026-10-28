@@ -193,9 +193,11 @@ android-<app_name>-<user_id>-<certificate_id>
 ```
 
 Using an arbitrary `thing_name_<random>` identity connects but every
-subscription returns **SUBACK 128**. A suffix such as `-web` is allowed and lets
-a second client coexist with the phone app. Connect over TLS **8883** with
-mutual TLS, then subscribe read-only to:
+subscription returns **SUBACK 128**. A unique suffix such as
+`-web-<instance>` is allowed and lets a second client coexist with the phone app.
+Use a fresh suffix per feed process; a fixed suffix can collide with a stale
+broker session after restart. Connect over TLS **8883** with mutual TLS, then
+subscribe read-only to:
 
 ```
 dt/anker_power/<model>/<sn>/troubleshot_info/ems_second
