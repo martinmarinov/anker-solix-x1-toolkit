@@ -93,7 +93,7 @@ rejected server-side before any request.
 
 ```json
 {"station_id":"…","main_sn":null,"time":"YYYY-MM-DD HH:MM:SS",
- "utility_rate_plan":{…, every period id 0},"ack_peak_valley":null,
+ "utility_rate_plan":{…, existing ids kept, 0 for new rows},"ack_peak_valley":null,
  "accuracy":5,"electricity_strategy":{"mode":1},
  "price_source_type":5,"price_source_sub_type":51,"version":"1.0.0"}
 ```

@@ -60,6 +60,7 @@ encrypted sessions, Anker API calls and MQTT. Use a small VPS/container, or run 
 | [`docs/API.md`](docs/API.md) | Reverse-engineered endpoints, schemas, MQTT telemetry |
 | [`docs/REVERSE-ENGINEERING.md`](docs/REVERSE-ENGINEERING.md) | Playbook for continuing the RE with a real device, mitmproxy and Frida |
 | [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md) | Why the device only honours whole-hour boundaries |
+| [`thomluther/anker-solix-api`](https://github.com/thomluther/anker-solix-api) | Independent community API; issue #313 cross-checked the HES enums/id semantics |
 | [`REPORT.md`](REPORT.md) | Full investigation, evidence and findings |
 | [`app/README.md`](app/README.md) | App architecture, security model, operation |
 

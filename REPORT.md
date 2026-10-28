@@ -220,7 +220,7 @@ peak_sessions[                        // season-scoped sessions ("session1", "Ja
       { start_time_period: "00:00",
         end_time_period:   "05:00",     // ← end-of-day is clamped to "23:59", seen literally
         peak_type: 1,                    // cheapest→dearest: 1=Super Off-Peak … 4=Peak
-        day_type:  1,                    // 1=Weekday 2=Weekend
+        day_type:  1,                    // 1=Weekend, 2=Weekday
         buy: 0.3164, energy_unit: "kWh" }
     ]
   }
@@ -234,7 +234,7 @@ The editor's own vocabulary maps 1:1 onto your screenshot:
 | UI (your screenshot) | Field |
 |---|---|
 | "Jan – Dec" season | `peak_sessions[].start_time` / `end_time` |
-| Weekday / Weekend tab | `day_type` 1 / 2 |
+| Weekday / Weekend tab | `day_type` **2 / 1** |
 | "Super Off-Peak" | `peak_type` **1** |
 | "Peak" | `peak_type` **4** |
 
@@ -397,7 +397,7 @@ The new client should be recognisably *the same screen*, so the mental model and
 | Element | Behaviour |
 |---|---|
 | Season range | "Jan – Dec" (or the installed plan's range), editable at season boundaries only — same as today |
-| Day split | Weekday / Weekend segmented control, each with its own period list (`day_type` 1 / 2) |
+| Day split | Weekday / Weekend segmented control, each with its own period list (`day_type` **2 / 1**) |
 | Period list | One row per period: colour dot, tariff label (**Super Off-Peak**, Peak, Mid-Peak, Off-Peak), `HH:mm – HH:mm`, overflow menu for delete |
 | Period picker | **1-hour steps** in the current build. The original 30-minute/48-slot design was dropped after the device floored `:30`; see [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md) |
 | Vertical slider | 24 one-hour ticks in the current build |
@@ -543,7 +543,7 @@ POST /charging_hes_svc/device_command
   "station_id": "<site uuid>",
   "main_sn": null,
   "time": "2026-10-27 20:19:18",        // formatted local time, NOT unix
-  "utility_rate_plan": { … peak_sessions, every period id: 0 … },
+  "utility_rate_plan": { … peak_sessions, existing ids kept, 0 for new rows … },
   "ack_peak_valley": null,
   "accuracy": 5,
   "electricity_strategy": { "mode": 1 },
@@ -728,7 +728,7 @@ the preferred read. The plan itself:
 | Field | Meaning |
 |---|---|
 | `peak_type` | **1 = Super Off-Peak … 4 = Peak** (price-ascending) |
-| `day_type` | 1 = weekday, 2 = weekend |
+| `day_type` | **2 = weekday, 1 = weekend** (HES enum) |
 | `buy` / `sell` | import / export price, `£/kWh`, **2 decimals, truncated** |
 | `start_time_period` / `end_time_period` | `"HH:mm"`; end may be `"24:00"` (or `"23:59"` legacy) |
 | `id` | server-assigned on read; the app writes **0** on every row |
@@ -813,7 +813,7 @@ Why each field matters:
 | `accuracy` | **5** | 1 | prices rounded to 1 dp |
 | `ack_peak_valley` | **null** | 1 | commit semantics differ; app sends null |
 | `electricity_strategy` | **`{"mode":1}`**, optionally plus `conserve_percent`/`grid_recharging` | `{}` | strategy fields reset/invalid |
-| period `id` | **0** | ids read from cloud | rows treated as updates, not replacements |
+| period `id` | **existing id, 0 for new rows** | ids read from cloud | preserving ids avoids row churn |
 | `price_source_type` / `sub_type` | **5 / 51** | absent | pricing source not applied |
 
 `time` uses the site's local timezone (`Europe/London` observed), not UTC.
@@ -911,9 +911,10 @@ the user CA and downloaded certificates, re-enable mobile data.
 | `device_command` accepts plain JSON | live write, `200 {"code":0}` + read-back |
 | `client_public_key` = IV‖AES-CBC(hex P-256) | decrypted captured exchange blob |
 | Gadget payload capture | Frida `Memory.scanSync` for `peak_valley_prices` |
-| Exact `device_command` fields (`accuracy:5`, null `ack`/`main_sn`, ids 0) | captured plaintext body |
+| Exact `device_command` fields (`accuracy:5`, null `ack`/`main_sn`, id handling) | captured body + live probes |
 | Prices stored 2 dp truncated (`0.0762→0.07`, `0.3123→0.31`) | write + `get_device_command` read-back |
 | Full-day 00:00–24:00 rule, wrap split into 3 periods | app UI behaviour + captured plan |
+| `day_type` 2=weekday, 1=weekend; keep ids on edits, 0 for inserts | anker-solix-api issue #313 live probes |
 
 ## Appendix B — artifacts on disk
 - `poc/anker_tou.py` — reference client: login, discover site/device, dump plan, write 30-min plan, verify, rollback.

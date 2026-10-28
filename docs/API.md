@@ -1,7 +1,11 @@
 # API schema (reverse-engineered)
 
 Everything here was derived from the Android app (`com.anker.charging`) and verified
-against the live cloud. Identifiers are redacted: `<site_uuid>`, `<inverter_sn>`,
+against the live cloud. It is cross-checked against the community
+[`thomluther/anker-solix-api`](https://github.com/thomluther/anker-solix-api) project,
+especially [issue #313](https://github.com/thomluther/anker-solix-api/issues/313)
+(Power Panel TOU live probes). That issue is the source for the **`day_type` 2=weekday,
+1=weekend** mapping and the row-id/insert semantics below. Identifiers are redacted: `<site_uuid>`, `<inverter_sn>`,
 `<account_id>`. This is an undocumented private API; treat it as unstable.
 
 ## Hosts
@@ -95,10 +99,10 @@ with the inverter serial it returns the stored two-decimal values.
 | Field | Meaning |
 |---|---|
 | `peak_type` | **1 = Super Off-Peak … 4 = Peak** (price-ascending) |
-| `day_type` | 1 = weekday, 2 = weekend |
+| `day_type` | **2 = weekday, 1 = weekend** (HES enum) |
 | `buy` / `sell` | import / export price, `£/kWh`, 2 decimals, **truncated** |
 | `start_time_period` / `end_time_period` | `HH:mm`; last end `24:00` |
-| `id` | server-assigned on read; send `0` on write |
+| `id` | server-assigned on read; **keep it** for modified rows, use `0` for a new row |
 
 ## Plan write
 
@@ -109,7 +113,7 @@ with the inverter serial it returns the stored two-decimal values.
   "station_id": "<site_uuid>",
   "main_sn": null,
   "time": "YYYY-MM-DD HH:MM:SS",
-  "utility_rate_plan": { "peak_sessions": [ … ids 0 … ] },
+  "utility_rate_plan": { "peak_sessions": [ … existing ids kept, 0 for new … ] },
   "ack_peak_valley": null,
   "accuracy": 5,
   "electricity_strategy": {"mode": 1},
@@ -126,7 +130,7 @@ with the inverter serial it returns the stored two-decimal values.
 | `accuracy` | `5` | `1` silently rounds prices to 1 dp |
 | `ack_peak_valley` | `null` | |
 | `electricity_strategy` | `{"mode":1}` | `{}` is not equivalent |
-| period `id` | `0` | |
+| period `id` | existing id, `0` for a new row | preserving ids avoids unnecessary row churn |
 | prices | exact `buy`/`sell` | cloud truncates both to 2 dp |
 
 The cloud applies writes **asynchronously**: an immediate read often returns the old plan.
@@ -214,6 +218,20 @@ every **5 s**. Outer JSON:
 
 The flow fields are non-negative per edge, so direction is explicit. Subscribe-only;
 never publish commands from this app.
+
+## Cross-check with `anker-solix-api` #313
+
+The community [`anker-solix-api`](https://github.com/thomluther/anker-solix-api)
+live-probed an A17B1 Power Panel and documented the same TOU endpoint. These
+details were missed by our first pass and are now reflected above:
+
+- **`day_type` is 2 = Weekday, 1 = Weekend** — the reverse of our original labels.
+- **Existing row ids should be preserved** when changing a slot; `0` is accepted for a
+  new/inserted row, and the cloud allocates an id.
+- **Clearing a plan** is `peak_sessions` with one season whose `peak_valley_prices` is
+  `[]`, not an empty `peak_sessions`.
+- **`fixed_price` is a full session object**, not a scalar; that Power Panel shape differs
+  from the X1 A5102 plan, which uses `fixed_rate: null`.
 
 ## Validation quirks
 

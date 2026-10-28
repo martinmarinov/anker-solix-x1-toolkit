@@ -623,14 +623,18 @@ class AnkerClient:
         """Write the TOU plan exactly as the Android app does.
 
         Captured from the app's plaintext payload (2026-10-27): accuracy 5,
-        null main_sn/ack, {mode:1} strategy, id 0 on every row, and a formatted
-        local time string. This path stores prices to **two** decimals; the
+        null main_sn/ack, {mode:1} strategy, and a formatted local time string.
+        Existing row ids are preserved; new rows use 0 so the cloud allocates. This path stores prices to **two** decimals; the
         older minimal body silently rounded them to one.
         """
         plan = copy.deepcopy(plan)
         for season in plan.get("peak_sessions") or []:
             for r in season.get("peak_valley_prices") or []:
-                r["id"] = 0
+                # Keep ids for modified rows; 0 makes the cloud allocate a new id.
+                try:
+                    r["id"] = int(r.get("id") or 0)
+                except (TypeError, ValueError):
+                    r["id"] = 0
         # The Android app's exact shape: ack is null and strategy is {mode:1}.
         # Only add the two user-editable fields when they were actually changed.
         ems = {"mode": 1}

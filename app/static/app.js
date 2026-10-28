@@ -25,7 +25,7 @@ const END_TIMES = TIMES.slice(1).concat(["24:00"]);
 
 const state = {
   user: null, sites: [], site: null, sn: null,
-  plan: null, loaded: null, seasonIdx: 0, dayType: 1,
+  plan: null, loaded: null, seasonIdx: 0, dayType: 2,
   limits: null, limitsCheck: null, devices: [], busy: false,
   linkDays: (() => {
     try { const v = localStorage.getItem("anker.linkDays"); return v === null ? true : v === "1"; }
@@ -107,6 +107,10 @@ function setNet(kind, html, retry) {
   }
 }
 
+// HES enum, verified by the anker-solix-api live probe and the app model:
+// day_type 2 = Weekday, day_type 1 = Weekend.
+const dayName = (dt) => Number(dt) === 2 ? "Weekday" : "Weekend";
+
 function monthOf(s) {
   const m = /^(\d{4})-(\d{2})/.exec(s || "");
   return m ? Number(m[2]) : 1;
@@ -168,11 +172,17 @@ function canonicalizeDay(seasonObj, dayType) {
   }
   const others = (seasonObj.peak_valley_prices || [])
     .filter((r) => Number(r.day_type) !== dayType);
-  const rebuilt = out.map((seg) => ({
-    ...seg.src, id: 0, day_type: dayType,
-    start_time_period: fmtMin(seg.start),
-    end_time_period: seg.end === 1440 ? "24:00" : fmtMin(seg.end),
-  }));
+  const rebuilt = out.map((seg) => {
+    const srcStart = toMin(seg.src.start_time_period);
+    const srcEnd = toMin(seg.src.end_time_period);
+    const unchanged = srcStart === seg.start &&
+      (srcEnd === seg.end || (srcEnd === 0 && seg.end === 1440));
+    return {
+      ...seg.src, id: unchanged ? (Number(seg.src.id) || 0) : 0, day_type: dayType,
+      start_time_period: fmtMin(seg.start),
+      end_time_period: seg.end === 1440 ? "24:00" : fmtMin(seg.end),
+    };
+  });
   seasonObj.peak_valley_prices = others.concat(rebuilt)
     .sort((a, b) => (Number(a.day_type) - Number(b.day_type)) ||
                     (toMin(a.start_time_period) - toMin(b.start_time_period)));
@@ -782,7 +792,7 @@ function describeChanges() {
       if (String(x.buy ?? "") !== String(y.buy ?? "")) bits.push(`buy ${x.buy} → ${y.buy}`);
       if (String(x.sell ?? "") !== String(y.sell ?? "")) bits.push(`sell ${x.sell} → ${y.sell}`);
       if (bits.length) {
-        out.push(`${Number(y.day_type) === 2 ? "Weekend" : "Weekday"} ${bits.join(", ")}`);
+        out.push(`${dayName(y.day_type)} ${bits.join(", ")}`);
       }
     }
   }
@@ -824,7 +834,7 @@ function validate() {
     for (const dt of [1, 2]) {
       const rows = rowsFor(s, dt).map((x) => x.r)
         .sort((a, b) => toMin(a.start_time_period) - toMin(b.start_time_period));
-      const label = dt === 1 ? "Weekday" : "Weekend";
+      const label = dayName(dt);
       if (!rows.length) return `${label}: at least one period is required.`;
       if (rows.length > 4) return `${label}: maximum 4 periods per day type.`;
       if (toMin(rows[0].start_time_period) !== 0) {
@@ -959,7 +969,7 @@ async function doSave() {
     });
     $("resultCard").classList.remove("hide");
     const adj = (js.adjustments || []).map((a) =>
-      `  • ${tariff(a.peak_type).name} (${Number(a.day_type) === 1 ? "weekday" : "weekend"}) ` +
+      `  • ${tariff(a.peak_type).name} (${dayName(a.day_type).toLowerCase()}) ` +
       `${a.field}: ${fmtPrice(a.from)} → ${fmtPrice(a.to)}`);
     $("resultBody").textContent =
       `${js.message}\n\nChanges applied:\n` +
