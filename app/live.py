@@ -28,6 +28,8 @@ STATUS_KEYS = ("ps", "gs", "bs", "es")
 # X1 accepts a JSON cmd:9 request for 60 samples at 5 s intervals (5 minutes).
 TRIGGER_GRACE_S = 12
 TRIGGER_COOLDOWN_S = 240
+BATTERY_MODULE_KWH = 5.0
+BATTERY_RESERVE_SOC = 5.0
 
 
 def build_trigger(pn: str, sn: str, account_id: str, now: int | None = None) -> tuple[str, str]:
@@ -90,13 +92,19 @@ def parse_frame(raw: bytes) -> dict | None:
 
 
 class LiveFeed:
-    def __init__(self, client, pn: str, sn: str):
+    def __init__(self, client, pn: str, sn: str, battery_modules: int = 0,
+                 reserve_soc: float = BATTERY_RESERVE_SOC):
         self.client = client
         # Own HTTP session: the feed thread must not share requests.Session
         # with the web request threads.
         self.api = AnkerClient.resume(client.token, client.user_id,
                                       client.country, client.base, client.nick)
         self.pn, self.sn = pn, sn
+        self.battery_modules = max(0, int(battery_modules))
+        self.nominal_capacity_kwh = (
+            round(self.battery_modules * BATTERY_MODULE_KWH, 2)
+            if self.battery_modules else None)
+        self.reserve_soc = max(0.0, min(100.0, float(reserve_soc)))
         self.dir = tempfile.mkdtemp(prefix="anker-live-")
         os.chmod(self.dir, 0o700)
         self.snapshot: dict = {"available": False, "reason": "starting"}
@@ -254,6 +262,11 @@ class LiveFeed:
         snap = parse_frame(msg.payload)
         if not snap:
             return
-        snap.update(available=True, ts=int(time.time()))
+        snap.update(
+            available=True,
+            ts=int(time.time()),
+            nominal_capacity_kwh=self.nominal_capacity_kwh,
+            reserve_soc=self.reserve_soc,
+        )
         with self.lock:
             self.snapshot = snap

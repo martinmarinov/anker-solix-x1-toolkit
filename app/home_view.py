@@ -20,6 +20,7 @@ import.  Edge flows always win when present.
 from __future__ import annotations
 
 ACTIVE_W = 5.0
+BATTERY_EFFICIENCY = 0.95
 POWER_KEYS = ("pp", "gp", "bp", "lp")
 FLOW_KEYS = ("p2lp", "p2bp", "p2gp", "g2lp", "g2bp", "b2lp", "b2gp")
 
@@ -97,7 +98,10 @@ def build_home_view(snapshot: dict | None) -> dict:
             "solar": {"w": None, "kw": None, "state": "unavailable"},
             "grid": {"w": None, "kw": None, "state": "unavailable", "label": "Unavailable"},
             "battery": {"w": None, "kw": None, "state": "unavailable",
-                        "soc": None, "label": "Unavailable"},
+                        "soc": None, "label": "Unavailable",
+                        "nominal_capacity_kwh": None, "reserve_soc": None,
+                        "available_kwh": None, "hours_to_empty": None,
+                        "hours_to_full": None},
             "home": {"w": None, "kw": None, "state": "unavailable"},
             "flows": {
                 "solar": _flow(0),
@@ -171,6 +175,28 @@ def build_home_view(snapshot: dict | None) -> dict:
     if soc is not None:
         batt_label = f"{soc}% charged"
 
+    nominal = _number(snap.get("nominal_capacity_kwh"))
+    reserve = _number(snap.get("reserve_soc"))
+    available_kwh = None
+    hours_to_empty = None
+    hours_to_full = None
+    soc_raw = _number(snap.get("soc"))
+    if nominal is not None and nominal > 0 and soc_raw is not None and reserve is not None:
+        usable_soc = max(0.0, min(100.0, soc_raw) - reserve)
+        available_kwh = max(0.0, nominal * usable_soc / 100.0)
+        batt_kw = max(0.0, batt_w / 1000.0)
+        if batt_state == "discharging" and batt_kw > 0:
+            hours_to_empty = available_kwh * BATTERY_EFFICIENCY / batt_kw
+        elif batt_state == "charging" and batt_kw > 0:
+            deficit = max(0.0, nominal - available_kwh)
+            hours_to_full = deficit / (batt_kw * BATTERY_EFFICIENCY)
+    if available_kwh is not None:
+        available_kwh = round(available_kwh, 2)
+    if hours_to_empty is not None:
+        hours_to_empty = round(hours_to_empty, 2)
+    if hours_to_full is not None:
+        hours_to_full = round(hours_to_full, 2)
+
     if stale:
         status = {"level": "stale", "label": f"Stale · {age_s}s" if age_s is not None
                   else "Stale"}
@@ -186,7 +212,12 @@ def build_home_view(snapshot: dict | None) -> dict:
         "solar": {**_power(solar_w), "state": solar_state},
         "grid": {**_power(grid_w), "state": grid_state, "label": grid_label},
         "battery": {**_power(batt_w), "state": batt_state, "soc": soc,
-                    "label": batt_label},
+                    "label": batt_label,
+                    "nominal_capacity_kwh": nominal,
+                    "reserve_soc": reserve,
+                    "available_kwh": available_kwh,
+                    "hours_to_empty": hours_to_empty,
+                    "hours_to_full": hours_to_full},
         "home": {**_power(home_w),
                  "state": "consuming" if home_w > ACTIVE_W else "idle"},
         "flows": {

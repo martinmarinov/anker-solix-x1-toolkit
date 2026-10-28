@@ -833,7 +833,15 @@ class Handler(BaseHTTPRequestHandler):
                     oldest.stop()
                 except Exception:
                     pass
-            live = LiveFeed(sess["client"], main.get("code") or "device", chosen_sn)
+            battery_modules = sum(
+                1 for d in devices if d.get("role") == "battery")
+            try:
+                reserve_soc = float(sess.get("battery_reserve_soc", 5.0))
+            except (TypeError, ValueError):
+                reserve_soc = 5.0
+            live = LiveFeed(
+                sess["client"], main.get("code") or "device", chosen_sn,
+                battery_modules=battery_modules, reserve_soc=reserve_soc)
             feeds[key] = live
             live.start()
             return live, site, chosen_sn
@@ -937,6 +945,11 @@ class Handler(BaseHTTPRequestHandler):
                 strategy_error = "Anker returned no electricity_strategy object."
         except AnkerError as e:
             strategy_error = e.message
+        if strategy and strategy.get("conserve_percent") is not None:
+            try:
+                s["battery_reserve_soc"] = float(strategy["conserve_percent"])
+            except (TypeError, ValueError):
+                pass
         self.json(200, {
             "ok": True, "site": site, "sn": sn, "endpoint": plan["endpoint"],
             "plan": plan["data"], "strategy": strategy,

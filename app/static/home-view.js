@@ -94,6 +94,53 @@
     return Number(obj.kw).toFixed(2);
   }
 
+  function fmtKwh(value) {
+    if (value === null || value === undefined || !isFinite(Number(value))) {
+      return "\u2014";
+    }
+    return Number(value).toFixed(2) + " kWh";
+  }
+
+  function fmtDuration(hours) {
+    var total = Math.max(0, Math.round(Number(hours) * 60));
+    if (total < 60) return Math.max(1, total) + "m";
+    var h = Math.floor(total / 60);
+    var m = total % 60;
+    return m ? h + "h " + m + "m" : h + "h";
+  }
+
+  function clockAfter(hours) {
+    var d = new Date(Date.now() + Math.max(0, Number(hours)) * 3600000);
+    return d.toLocaleTimeString([], {
+      hour: "2-digit", minute: "2-digit", hour12: false
+    });
+  }
+
+  /* Browser-local low-pass filter: mean absolute battery kW over the last
+     five minutes. It intentionally resets on reload and warms up as samples
+     accumulate. */
+  var BATTERY_FILTER_MS = 5 * 60 * 1000;
+  var BATTERY_EFFICIENCY = 0.95;
+  var batteryPowerSamples = [];
+
+  function batteryAverageKw(kw, available) {
+    if (!available || kw === null || kw === undefined || !isFinite(Number(kw))) {
+      return null;
+    }
+    var now = Date.now();
+    batteryPowerSamples.push({t: now, kw: Math.abs(Number(kw))});
+    while (batteryPowerSamples.length &&
+           now - batteryPowerSamples[0].t > BATTERY_FILTER_MS) {
+      batteryPowerSamples.shift();
+    }
+    if (!batteryPowerSamples.length) return null;
+    var total = 0;
+    for (var i = 0; i < batteryPowerSamples.length; i++) {
+      total += batteryPowerSamples[i].kw;
+    }
+    return total / batteryPowerSamples.length;
+  }
+
   /* SOC accent: green above 80%, amber at 30%, red at 5%. Smoothstep
      blends the two spans so the colour moves with the state of charge. */
   var BATT_GREEN = [46, 224, 122];
@@ -307,7 +354,23 @@
     var soc = view.soc;
     var socOk = available && soc !== null && soc !== undefined &&
                 isFinite(Number(soc));
-    var kw = fmtKw(view.battery);
+    var batt = view.battery || {};
+    var averageKw = batteryAverageKw(batt.kw, available);
+    var etaHours = null;
+    var etaLabel = "";
+    if (averageKw !== null && averageKw > 0 &&
+        isFinite(Number(batt.available_kwh))) {
+      if (batt.state === "discharging") {
+        etaHours = Number(batt.available_kwh) * BATTERY_EFFICIENCY / averageKw;
+        etaLabel = "empty";
+      } else if (batt.state === "charging" &&
+                 isFinite(Number(batt.nominal_capacity_kwh))) {
+        var deficit = Math.max(
+          0, Number(batt.nominal_capacity_kwh) - Number(batt.available_kwh));
+        etaHours = deficit / (averageKw * BATTERY_EFFICIENCY);
+        etaLabel = "full";
+      }
+    }
     if (els.batteryHero) {
       els.batteryHero.style.setProperty("--soc", socOk ? String(Number(soc)) : "0");
     }
@@ -317,10 +380,16 @@
     if (els.batterySummary) {
       if (!available) {
         els.batterySummary.textContent = "—";
-      } else if (socOk && kw !== "\u2014") {
-        els.batterySummary.textContent = kw + " kW · " + Math.round(Number(soc)) + "%";
+      } else if (batt.available_kwh === null || batt.available_kwh === undefined ||
+                 !isFinite(Number(batt.available_kwh))) {
+        els.batterySummary.textContent = "—";
       } else {
-        els.batterySummary.textContent = kw === "\u2014" ? "—" : kw + " kW";
+        var lines = [fmtKwh(batt.available_kwh)];
+        if (etaHours !== null && isFinite(etaHours)) {
+          lines.push("~" + fmtDuration(etaHours) +
+                     " · " + etaLabel + " " + clockAfter(etaHours));
+        }
+        els.batterySummary.textContent = lines.join("\n");
       }
     }
 

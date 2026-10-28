@@ -145,6 +145,25 @@ class HomeViewTests(unittest.TestCase):
         self.assertEqual(view["home"]["kw"], 0.0)
         self.assertEqual(view["status"]["level"], "live")
 
+    def test_battery_available_capacity_and_discharge_time(self):
+        view = build_home_view({
+            "available": True, "soc": 50, "pp": 0, "gp": 0, "lp": 0,
+            "bp": 1500, "nominal_capacity_kwh": 15, "reserve_soc": 5,
+        })
+        self.assertEqual(view["battery"]["available_kwh"], 6.75)
+        self.assertEqual(view["battery"]["state"], "discharging")
+        self.assertEqual(view["battery"]["hours_to_empty"], 4.27)
+        self.assertIsNone(view["battery"]["hours_to_full"])
+
+    def test_battery_charge_time_uses_efficiency(self):
+        view = build_home_view({
+            "available": True, "soc": 50, "pp": 0, "gp": 0, "lp": 0,
+            "bp": -1500, "nominal_capacity_kwh": 15, "reserve_soc": 5,
+        })
+        self.assertEqual(view["battery"]["state"], "charging")
+        self.assertEqual(view["battery"]["hours_to_full"], 5.79)
+        self.assertIsNone(view["battery"]["hours_to_empty"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -427,7 +427,7 @@
   align-items: center;
   gap: calc(var(--u) * .25);
   margin-top: calc(var(--u) * 1.2);
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .battery-caption-label {
@@ -439,9 +439,10 @@
 
 .battery-caption-value {
   color: var(--battery-color);
-  font-size: clamp(12px, calc(var(--u) * 2.35), 30px);
+  font-size: clamp(11px, calc(var(--u) * 2.1), 28px);
   font-weight: 600;
   line-height: 1.15;
+  white-space: pre-line;
   letter-spacing: .01em;
   font-variant-numeric: tabular-nums;
   transition: color .8s ease;
