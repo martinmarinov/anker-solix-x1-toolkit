@@ -4,10 +4,10 @@ anker_tou.py — reference client for Anker SOLIX X1 (A17B1/A5101) Time-of-Use p
 
 Why this exists
 ---------------
-The Anker app's TOU editor snaps to 24 one-hour ticks, but the payload field it
-sends (`start_time_period` / `end_time_period`) is a plain "HH:mm" string and the
-app's serializer copies it verbatim. So a 23:30 boundary is expressible on the
-wire even though the slider cannot produce it.
+The Anker app's TOU editor uses 24 one-hour ticks. The payload field is a plain
+"HH:mm" string, so the cloud can store `:30`, but the X1/D156 device applies the
+previous whole hour (23:30 -> 23:00, 05:30 -> 05:00). This POC only emits whole
+hours.
 
 This tool never invents a payload: it reads YOUR current plan, changes only the
 time strings (or the valley/peak pair you ask for), and posts the same envelope
@@ -22,7 +22,7 @@ Safety model
   * It refuses to touch firmware/OTA/mode/SOC endpoints. Only the rate-plan
     endpoints below are reachable from this file.
   * It refuses the Dynamic Tariff service outright. That path is what Anker
-    support suggested for half-hour slots, and it is the configuration that
+    support suggested for sub-hour slots, and it is the configuration that
     caused a documented overcurrent breaker trip: it charges at full power with
     no load-aware limiting. Change the TIMES, keep the MODE on Time of Use.
   * `cmd` is never guessed: it is copied from --cmd or omitted.
@@ -37,11 +37,11 @@ Usage
   # read-only: who am I, which sites/devices, what is the live plan?
   python3 anker_tou.py --email you@example.com --country GB --dump
 
-  # dry run: show the 23:30->05:30 rewrite, write nothing
-  python3 anker_tou.py --dump --valley 23:30-05:30 --peak 05:30-23:30 --from captures/plan-*.json
+  # dry run: show the 23:00->05:00 rewrite, write nothing
+  python3 anker_tou.py --dump --valley 23:00-05:00 --peak 05:00-23:00 --from captures/plan-*.json
 
   # for real (prompts for confirmation)
-  python3 anker_tou.py --apply --valley 23:30-05:30 --peak 05:30-23:30 --from captures/plan-<ts>.json
+  python3 anker_tou.py --apply --valley 23:00-05:00 --peak 05:00-23:00 --from captures/plan-<ts>.json
 
   # restore a snapshot
   python3 anker_tou.py --apply --rollback captures/plan-<ts>.json
@@ -142,6 +142,9 @@ def hhmm(value: str) -> str:
         die(f"bad time {value!r}; expected HH:mm")
     if not (0 <= h <= 24 and 0 <= m <= 59) or (h == 24 and m != 0):
         die(f"bad time {value!r}; expected 00:00..24:00")
+    if m != 0:
+        die(f"{value!r} is not a whole hour; the X1/D156 device floors :30 to the hour. "
+            "Use HH:00 (see docs/FIRMWARE-LIMITS.md).")
     return f"{h:02d}:{m:02d}"
 
 
@@ -343,8 +346,8 @@ def retime(data: dict, valley: tuple[str, str], peak: tuple[str, str]) -> int:
     """Rewrite period boundaries in place. Returns number of rows changed.
 
     Handles the string shape `start_time_period`/`end_time_period` (minutes).
-    Refuses the integer-hour shapes (`start_time`: 0..24), because those cannot
-    express 23:30 -- that would be a real firmware limit, not a UI one.
+    Refuses the integer-hour shapes (`start_time`: 0..24), because they are a
+    different payload shape; the app uses `HH:mm` strings for whole hours.
     """
     changed = 0
     rows = list(find_lists(data, "peak_valley_prices"))
@@ -438,7 +441,7 @@ def assert_times_only(before: dict, after: dict) -> None:
         die("refusing to write: payload changes more than the period times.\n"
             "  Offending fields: " + ", ".join(bad[:8]) + ("…" if len(bad) > 8 else "") +
             "\n  The design rule is: reproduce the Time-of-Use editor, change only\n"
-            "  30-minute boundaries, keep the target-driven controller. A payload\n"
+            "  whole-hour boundaries, keep the target-driven controller. A payload\n"
             "  that flips mode/price_type would switch control laws (see REPORT.md 4.6).")
 
 
@@ -526,8 +529,8 @@ def main() -> None:
     ap.add_argument("--sn", help="device serial (defaults to first A17B1/A5101)")
     ap.add_argument("--dump", action="store_true", help="read-only: list + plan")
     ap.add_argument("--from", dest="from_file", help="plan snapshot JSON to rewrite")
-    ap.add_argument("--valley", default="23:30-05:30", help="valley window (default 23:30-05:30)")
-    ap.add_argument("--peak", default="05:30-23:30", help="peak window (default 05:30-23:30)")
+    ap.add_argument("--valley", default="23:00-05:00", help="valley window (default 23:00-05:00)")
+    ap.add_argument("--peak", default="05:00-23:00", help="peak window (default 05:00-23:00)")
     ap.add_argument("--apply", action="store_true", help="actually write (default: dry run)")
     ap.add_argument("--rollback", help="re-upload a snapshot file")
     ap.add_argument("--endpoint", default=P_SAVE_PLAN_HES, help="write endpoint")
@@ -653,8 +656,8 @@ def main() -> None:
 
     if times(after) != times(data):
         print("\n!! read-back does NOT match what was sent.")
-        print("   This is the signal that the cloud/firmware rounded or ignored "
-              "the 30-minute boundary.")
+        print("   This is the signal that the cloud/firmware changed or ignored "
+              "an hourly boundary.")
         print(f"   Restoring snapshot {before} …")
         cli.save_plan(args.endpoint, {"site_id": site_id, "sn": sn,
                                       **json.load(open(before, encoding="utf-8"))})

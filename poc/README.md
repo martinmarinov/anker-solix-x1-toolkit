@@ -1,11 +1,13 @@
-# poc/ — Anker X1 30-minute TOU plan writer
+# poc/ — Anker X1 1-hour TOU plan writer
 
 Reference client for the Anker SOLIX X1 family. It reads your live
 Time-of-Use rate plan, rewrites only the period boundaries, writes it back, and
 verifies by re-reading.
 
-**Read [`../REPORT.md`](../REPORT.md) first** — it explains the protocol and why
-the 1-hour step is a UI limit rather than a hardware one.
+**Read [`../REPORT.md`](../REPORT.md) first** — it explains the protocol. The
+1-hour step is a **device execution limit**: the cloud accepts `:30`, but the
+X1/D156 applies the previous whole hour. See
+[`../docs/FIRMWARE-LIMITS.md`](../docs/FIRMWARE-LIMITS.md).
 
 ## Design constraints (non-negotiable)
 
@@ -19,9 +21,10 @@ This tool is a replacement for **one screen**, not a new energy controller.
 - **Change only `start_time_period` / `end_time_period`.** `assert_times_only()` compares the proposed
   payload with the live plan and refuses any other difference (mode, prices, `peak_type`, `day_type`,
   seasons, `energy_unit`).
-- **Mirror the existing TOU editor, with 30-minute steps as the only difference** — 48 slots, not 24.
-- **If `:30` is rejected on the TOU path, stop** and escalate; do not switch schedulers to get
-  granularity.
+- **Mirror the existing TOU editor, with 1-hour steps** — 24 slots, matching what the device
+  actually executes.
+- **Do not emit `:30`.** The POC now rejects non-hourly boundaries; switching schedulers to get
+  finer granularity is forbidden.
 
 ## Install
 
@@ -52,14 +55,14 @@ snapshot to `captures/plan-<ts>-read.json`. Nothing is written.
 - Product code should be an inverter SKU from the X1 family.
 - Rows should show `start_time_period` / `end_time_period` as `HH:mm`.
 - If instead you see integer `start_time: 0..24`, stop — that shape cannot
-  express 23:30, and the tool will refuse to force it.
+  express an hourly boundary either, and the tool will refuse to force it.
 
 ## 3. Dry run
 
 ```sh
 python3 anker_tou.py --email you@example.com --country GB \
   --from captures/plan-<ts>-read.json \
-  --valley 23:30-05:30 --peak 05:30-23:30
+  --valley 23:00-05:00 --peak 05:00-23:00
 ```
 
 Prints the rewritten plan and saves it as a `dryrun` snapshot. **No request is
@@ -70,7 +73,7 @@ sent** without `--apply`.
 ```sh
 python3 anker_tou.py --email you@example.com --country GB \
   --from captures/plan-<ts>-read.json \
-  --valley 23:30-05:30 --peak 05:30-23:30 --apply
+  --valley 23:00-05:00 --peak 05:00-23:00 --apply
 ```
 
 What happens:
@@ -78,7 +81,7 @@ What happens:
 2. The plan is POSTed to `charging_hes_svc/update_hes_utility_rate_plan`.
 3. The plan is re-read and compared field-by-field.
 4. **On mismatch it automatically restores the snapshot** and exits `2` — that
-   is your signal that the cloud or firmware rounded to the hour.
+   is your signal that the cloud or firmware changed a boundary.
 
 ## 5. Rollback
 
@@ -89,14 +92,14 @@ python3 anker_tou.py --email you@example.com --country GB \
 
 ## Safety notes
 
-- **Do not use Dynamic Tariff to get half-hour slots.** Anker support suggests it, and it does
+- **Do not use Dynamic Tariff to get sub-hour slots.** Anker support suggests it, and it does
   accept 23:30 — but on this installation it charged at a flat 6 kW with ~2 kW of backup load,
   pulling a bit over 8 kW through a 32 A breaker until it tripped (Anker case #TNJ909651061). The TOU path
   modulates charge power against the load; Dynamic Tariff does not. This tool refuses that endpoint
   unless you override it.
 - **Set a grid import / charge power limit below your breaker rating before the first write.**
   Then a bad schedule trips a limit, not the breaker.
-- **Verify the first cycle with current, not timestamps.** "Charging started at 23:30" is not
+- **Verify the first cycle with current, not timestamps.** "Charging started at 23:00" is not
   enough; confirm the power stayed within the circuit rating while backup load was present.
 - The write path enforces **times-only** changes structurally; a payload that would change mode or
   prices is rejected before it leaves the machine.

@@ -948,7 +948,7 @@ class Handler(BaseHTTPRequestHandler):
                     "Could not set the AC charge limit; the plan was not written. "
                     f"({e.message})", "limit", {"limit_kw": limit_kw})
 
-            # Half-hour boundaries proven to persist via device_command.
+            # Whole-hour boundaries: the device floors :30 to the previous hour.
 
             snap = capture(before, "before-write")
             s["client"].put_plan(site, sn, plan, strategy_extra or None)

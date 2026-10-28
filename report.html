@@ -83,7 +83,7 @@
   <div class="eyebrow">Static reverse engineering · com.anker.charging 3.24.3</div>
   <h1>Anker SOLIX X1: the 1-hour TOU limit is in the slider, not the protocol</h1>
   <p class="sub">A breakdown of how the Anker app talks to the X1 over the Anker cloud, what the
-  Time-of-Use payload actually looks like, and the cheapest safe way to get a 23:30–05:30 schedule.</p>
+  Time-of-Use payload actually looks like, and the cheapest safe way to get a 23:00–05:00 schedule.</p>
   <div class="meta">
     <span class="tag"><b>Target</b> X1 / X1-H · model codes redacted</span>
     <span class="tag"><b>Engine</b> Flutter Dart 3.11.0 AOT</span>
@@ -92,17 +92,18 @@
   </div>
 </header>
 <div class="note" style="margin:16px 0">This page predates the verified write and MQTT work; see <code>REPORT.md</code> §11–17 for the proven write payload, live telemetry, encryption findings and the gadget capture method.</div>
+<div class="note" style="margin:16px 0"><b>Update 2026-10-28 — the device only executes whole hours.</b> The cloud stores <code>23:30</code>/<code>05:30</code>, but the X1/D156 switched at <code>23:00</code>/<code>05:00</code>. The current editor uses one-hour slots. See <a href="docs/FIRMWARE-LIMITS.md">docs/FIRMWARE-LIMITS.md</a>.</div>
 
 <div class="verdict">
   <div class="k">Verdict</div>
   <p>The app sends <code>start_time_period</code> and <code>end_time_period</code> as
   <strong>“HH:mm” strings</strong>, and its serializer copies them into the JSON
-  <strong>verbatim</strong> — no division by 60, no rounding. The 1-hour step comes from a
-  24-tick slider in the Flutter UI. A 23:30 boundary is expressible on the wire.</p>
-  <p class="aside">Already proven in the field: a 23:30–05:30 window ran on real hardware via the
-  Dynamic Tariff path (Anker case #TNJ909651061). The inverter is half-hour capable. What remains is
-  whether the <em>Time-of-Use</em> endpoint accepts the same values — a config write with snapshot
-  and rollback, not a firmware change.</p>
+  <strong>verbatim</strong> — no division by 60, no rounding. The cloud can store <code>:30</code>,
+  but the X1/D156 device floors TOU boundaries to the previous whole hour (23:30→23:00, 05:30→05:00).
+  The current editor therefore uses 24 one-hour slots.</p>
+  <p class="aside">Dynamic Tariff did run a 23:30–05:30 window (Anker case #TNJ909651061), but the
+  <em>Time-of-Use</em> path stored 23:30/05:30 and switched at 23:00/05:00. That is the device limit
+  this project now reflects. See <a href="docs/FIRMWARE-LIMITS.md">docs/FIRMWARE-LIMITS.md</a>.</p>
 </div>
 
 
@@ -121,11 +122,11 @@
     <li><b>Change only the boundaries.</b> Mode, <code>price_type</code>, seasons, <code>day_type</code>,
       <code>peak_type</code>, prices and <code>energy_unit</code> are copied verbatim. The tool's
       <code>assert_times_only()</code> refuses anything else.</li>
-    <li><b>Mirror the screen, with 30-minute steps as the only difference:</b> same “Jan – Dec” season,
+    <li><b>Mirror the screen, with 1-hour steps:</b> same “Jan – Dec” season,
       same Weekday/Weekend split, same period rows (type + start + end + price), same add/remove capped
-      at <b>4 periods</b>, same Save. 48 slots instead of 24.</li>
-    <li><b>If <code>:30</code> is ever rejected on the TOU path — stop.</b> Do not switch to Dynamic
-      Tariff to get granularity; that trades a UI bug for an overcurrent hazard.</li>
+      at <b>4 periods</b>, same Save. <b>24 slots</b>, because the device floors <code>:30</code>.</li>
+    <li><b>Do not emit <code>:30</code>.</b> Do not switch to Dynamic Tariff to get finer granularity;
+      that trades a cosmetic UI feature for an overcurrent hazard.</li>
   </ol>
   <p class="kick" style="margin-top:12px"><b>Acceptance:</b> read-back differs only in the two time
   fields · app still shows Time of Use · charge power <b>ramps</b> (first ~10 min below steady state) ·
@@ -213,8 +214,8 @@ protocol; the app sends <code>x-app-key: ""</code> (empty) only on an optional e
     thinks in minutes.</div></div>
 </div>
 
-<div class="callout bad"><b>Where the hour actually comes from:</b> the custom vertical range
-slider on the “Jan – Dec” screen — 24 ticks labelled 00/06/12/18/24, always rendering <code>:00</code>.
+<div class="callout bad"><b>Where the hour comes from:</b> the device floors TOU boundaries to the
+previous hour; the “Jan – Dec” slider is also a 24-tick, <code>:00</code>-only control.
 Adjacent localised strings include German <em>“Stunde einstellen”</em> (“set the hour”).</div>
 
 <h2><span class="n">04</span>Field evidence — and why Anker's workaround is unsafe</h2>
@@ -224,10 +225,10 @@ a non-answer to the question, but it is a decisive data point for the reverse en
 carries a safety finding.</p>
 
 <div class="grid g2">
-  <div class="card"><div class="t">What it proves</div><div class="v">Half-hours work on the hardware</div>
+  <div class="card"><div class="t">What it proves</div><div class="v">Dynamic Tariff accepts half-hours; TOU floors them</div>
     <div class="d">On app v3.14.0 the Dynamic Tariff feature held a <b>23:30 → 05:30</b> charge window.
-    So the cloud accepts <code>:30</code> <em>and the inverter executes it</em>. The main unknown is
-    closed: the 1-hour step belongs to one picker widget, nothing else.</div></div>
+    But a TOU plan stored as <b>23:30/05:30</b> switched at <b>23:00/05:00</b>. The device limit is
+    the practical constraint.</div></div>
   <div class="card"><div class="t">What it costs</div><div class="v">A real overcurrent event</div>
     <div class="d">In that mode the X1 charged at a flat <b>6 kW</b> with no regard for the rest of the
     supply. With ~2 kW of backup load it pulled <b>a bit over 8 kW</b> (6 kW charge + ~2 kW backup) through a <b>32 A</b> breaker
@@ -237,7 +238,7 @@ carries a safety finding.</p>
 <div class="callout warn"><b>The mechanism matters:</b> in <b>Time of Use / Super Off-Peak</b> the unit
 <em>modulates</em> charge power to stay within rated current regardless of backup load. Dynamic Tariff
 does not. So the goal is to change the <em>times</em> while keeping the <em>mode</em> — never to switch
-mode to obtain half-hour slots.</div>
+mode to obtain sub-hour slots.</div>
 
 <div class="callout bad"><b>Consequences for the build:</b> (1) Dynamic Tariff is excluded on safety
 grounds, not just tariff mismatch. (2) Write the TOU rate plan and keep mode = Time of Use. (3) Set a
@@ -248,7 +249,7 @@ timestamps.</div>
 <h2><span class="n">05</span>Can you cap charge power today?</h2>
 
 <p class="lead"><b>Yes — the controls already ship in the app.</b> This matters more than the
-30-minute feature: a hard ceiling is what makes any schedule experiment safe.</p>
+sub-hourly feature: a hard ceiling is what makes any schedule experiment safe.</p>
 
 <div class="grid g2">
   <div class="card"><div class="t">Where it actually is (verified on device)</div>
@@ -322,7 +323,7 @@ recomputes its rate for an externally written plan (the first cycle's current me
       <td>Flutter <b>AOT</b> — no Dart source to recompile. Breaks on every release. <b>Don't.</b></td></tr>
   <tr><td><b>Frida runtime hook</b></td><td>Medium</td><td><span class="pill p-warn">Medium</span></td>
       <td><span class="pill p-warn">Medium</span></td><td>Rooted device only. Useful as a lab instrument to read the slider value, not a product.</td></tr>
-  <tr><td><b>Use Anker's suggested Dynamic Tariff</b><br><span class="kick">their reply to the 30-min question</span></td>
+  <tr><td><b>Use Anker's suggested Dynamic Tariff</b><br><span class="kick">their reply to the sub-hour question</span></td>
       <td>0</td><td><span class="pill p-bad">High</span></td><td><span class="pill p-bad">Ruled out</span></td>
       <td>Does accept 23:30 — but bypasses load-aware charge limiting, the documented cause of an
       overcurrent breaker trip on this installation. Excluded on <b>safety</b>, not just tariff mismatch.</td></tr>
@@ -343,7 +344,7 @@ recomputes its rate for an externally written plan (the first cycle's current me
     changes as electrical, not merely behavioural.</div></div>
 </div>
 
-<div class="callout bad"><b>Two hard rules:</b> never switch mode to Dynamic Tariff to obtain half-hour
+<div class="callout bad"><b>Two hard rules:</b> never switch mode to Dynamic Tariff to obtain sub-hour
 slots; and set a grid import / charge power limit below the breaker rating <em>before</em> the first
 experiment, so a bad schedule trips a limit rather than the breaker.</div>
 
@@ -352,13 +353,13 @@ experiment, so a bad schedule trips a limit rather than the breaker.</div>
 Never guess it — capture your app's own Save request (mitmproxy, or Frida if pinning appears) and
 replay that exact shape.</div>
 
-<h2><span class="n">09</span>Path to a 23:30–05:30 schedule</h2>
+<h2><span class="n">09</span>Path to a 23:00–05:00 schedule</h2>
 <table>
   <tr><th style="width:8%">Phase</th><th>Action</th><th style="width:18%">Risk</th></tr>
   <tr><td><b>0</b></td><td>Log in, dump the live plan, confirm the field shapes and product code,
     and <b>read the grid-charge power limit</b>. Nothing is written.</td><td><span class="pill p-good">none</span></td></tr>
-  <tr><td><b>1</b></td><td>Rewrite only valley/peak boundaries to 23:30–05:30, POST, then
-    <b>read back</b>. Mismatch ⇒ automatic restore.</td><td><span class="pill p-warn">config only</span></td></tr>
+  <tr><td><b>1</b></td><td>Rewrite only valley/peak boundaries to 23:00–05:00, POST, then
+    <b>read back</b>. Mismatch ⇒ automatic restore. Whole hours only; the device floors :30.</td><td><span class="pill p-warn">config only</span></td></tr>
   <tr><td><b>2</b></td><td>Watch one night — but check <b>power</b>, not only timestamps: with a
     representative backup load, did the unit <b>ramp</b> (first ~10 min below steady state) and stay
     under the breaker rating? Confirm the app still shows Time of Use, not Dynamic Tariff.</td>
@@ -367,14 +368,15 @@ replay that exact shape.</div>
     <td><span class="pill p-good">low</span></td></tr>
 </table>
 
-<div class="callout"><b>Fallback if Phase 1 is rejected:</b> split the wrap into
-<code>23:30→23:59</code> + <code>00:00→05:30</code>, both Valley. That stays inside the “no wrap”
-convention at the cost of one extra row — still impossible through the stock slider.</div>
+<div class="callout"><b>Preferred shape:</b> three whole-hour periods —
+<code>00:00–05:00</code>, <code>05:00–23:00</code>, <code>23:00–24:00</code>. The device floors
+<code>23:30</code>/<code>05:30</code> to <code>23:00</code>/<code>05:00</code>, so there is no
+half-hour variant to chase.</div>
 
 <h2><span class="n">10</span>What remains unknown</h2>
 <ul>
-  <li>Whether the <b>Time-of-Use</b> endpoint accepts <code>:30</code> — same encoding as the Dynamic
-    Tariff path that already worked, but a different service. This is the remaining test.</li>
+  <li><b>Resolved:</b> TOU cloud storage accepts <code>:30</code>, but the device floors it to the
+    hour. The editor now uses 24 one-hour slots.</li>
   <li>Whether load-aware charge modulation is preserved when the plan is written by a third-party
     client (it should be, since mode stays TOU — verify on the first cycle).</li>
   <li>The exact <code>cmd</code> your firmware expects (17 vs 123 vs 0) — capture it.</li>

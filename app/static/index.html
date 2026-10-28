@@ -165,7 +165,7 @@
   <section id="loginView" class="hide">
     <div class="login-card">
       <h1>Anker X1 — TOU editor</h1>
-      <p>Half-hour schedule editing for the SOLIX X1. Runs entirely on this machine.</p>
+      <p>Whole-hour schedule editing for the SOLIX X1. Runs entirely on this machine.</p>
       <form id="loginForm" autocomplete="on">
         <div class="field">
           <label for="email">Anker account email</label>
@@ -376,7 +376,7 @@
           <b>Write path verified.</b> Saves go through
           <code>charging_hes_svc/device_command</code> — the same call the Android app makes —
           and persist whole-hour boundaries. Every write is snapshotted, read back, and rolled
-          back automatically on mismatch. Half-hour values from older plans are floored to the
+          back automatically on mismatch. Legacy `:30` values from older plans are floored to the
           hour, matching what the device actually applies.
         </div>
         <div id="diffSummary" class="small muted">No changes yet.</div>

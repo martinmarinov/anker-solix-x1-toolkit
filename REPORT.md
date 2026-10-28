@@ -201,7 +201,7 @@ The app has a whole Third-Party Control section:
 - Community-reported constraints: **Ethernet required** (Wi-Fi reports `0.0.0.0`); **not available with more than one inverter** (master/slave); one Modbus client at a time.
 - Known-good registers (community YAML): plant status `10000`, PV power `10002`, third-party PV `10004`, load/feed-in energy `10030`/`10034`, plus holding registers for work mode, export/import limits, output mode.
 
-**Important gap:** the community register map covers **monitoring + power limits + work mode**; **no TOU schedule registers are published or discovered**. So Modbus is the safest *integration* surface, but as of now it is **not** a proven route to a 30-minute TOU plan. Treat it as plan B / complementary.
+**Important gap:** the community register map covers **monitoring + power limits + work mode**; **no TOU schedule registers are published or discovered**. So Modbus is the safest *integration* surface, but as of now it is **not** a proven route to a sub-hourly TOU plan. Treat it as plan B / complementary.
 
 ---
 
@@ -303,7 +303,7 @@ That removes the main unknown from §4.2 for the *Dynamic Tariff* scheduler, but
 
 ### 4.5 Can you limit charge power today? — yes, the controls ship in the app
 
-This matters more than the 30-minute feature: a hard power ceiling is what makes any schedule experiment safe.
+This matters more than the sub-hourly feature: a hard power ceiling is what makes any schedule experiment safe.
 
 **Seen in the binary** — a dedicated *Station Power Limit* feature:
 
@@ -375,14 +375,14 @@ So: **not a hidden app parameter — a different control law on the backend/devi
 | **D. Android app from scratch** | **High** (2–4 wks) | £0 | Med | Med | Reimplements auth + TLS + plan model, then you still ship/maintain an APK. Strictly more work than C for the same capability. |
 | **E. Patch the existing APK** | **Very high** | £0 | **High** | **Low** | Flutter **AOT** snapshot — no Dart source to recompile; would need binary patching of the snapshot or a hook at runtime. Signed APK, Play Integrity, and it breaks every release. **Not recommended.** |
 | **F. Frida runtime hook** (patch slider at runtime, rooted device) | Med | £0 | Med | Med | Faster than E: hook the picker's divisions/value at runtime. But rooted phone only, fragile across versions, and you still need the write path. Useful as a *diagnostic*, not a product. |
-| **G. Use Anker's suggested Dynamic Tariff instead** | ~0 | £0 | **High** | **Ruled out** | Anker's own answer to the 30-min question. It does accept `23:30`, but it bypasses load-aware charge limiting — the documented cause of an overcurrent breaker trip on this installation (§4.4). Excluded on safety grounds, not just tariff mismatch. |
+| **G. Use Anker's suggested Dynamic Tariff instead** | ~0 | £0 | **High** | **Ruled out** | Anker's own answer to the sub-hour question. It does accept `23:30`, but it bypasses load-aware charge limiting — the documented cause of an overcurrent breaker trip on this installation (§4.4). Excluded on safety grounds, not just tariff mismatch. |
 
 ### Recommendation
 
 **Do A, with F used only as a lab instrument if A's write is rejected.**
 
 1. **Phase 0 (read-only, tonight):** authenticate, pull the current plan, dump it to disk. Zero risk. This alone tells you the exact live schema for *your* firmware and site (field names, `param_type`, `cmd` actually used, whether `peak_sessions` or `use_time` comes back).
-2. **Phase 1 (one controlled write):** write the half-hour plan with the snapshot saved, then **read it back**. The cloud accepted `23:30`; the device still switched at `23:00`.
+2. **Phase 1 (one controlled write):** write the legacy `:30` plan with the snapshot saved, then **read it back**. The cloud accepted `23:30`; the device still switched at `23:00`.
 3. **Phase 2 (behavioural proof):** watch one night — did grid charging actually begin at 23:30? On the D156 it began at 23:00. This is why the editor is hourly now.
 4. If Phase 1 returns an error or the read-back is rounded → re-check the wrap by splitting into `23:30→23:59` + `00:00→05:30`. Then use Modbus for monitoring and escalate the TOU-granularity gap to Anker engineering as a feature request (their Dynamic Tariff workaround is unsafe for this installation, §4.4).
 
@@ -431,7 +431,7 @@ The new client should be recognisably *the same screen*, so the mental model and
 | 🔴 Avoid entirely | **switching to Dynamic Tariff** (`save_dynamic_price` / `charging_hes_dynamic_price_svc/*`), `set_power_cutoff` outside sane ranges, `set_modbus_setting` toggles, OTA endpoints, `device_command` with unknown `cmd`, any firmware/`/app/ota/*` path | documented overcurrent hazard, or can genuinely misconfigure the system / interrupt supply |
 
 **Hard rules for the tool:**
-- **Never switch the plan to Dynamic Tariff to obtain 30-minute slots.** That is Anker's suggestion, and it is the exact configuration that produced the breaker trip. Change times; do not change mode.
+- **Never switch the plan to Dynamic Tariff to obtain sub-hour slots.** That is Anker's suggestion, and it is the exact configuration that produced the breaker trip. Change times; do not change mode.
 - **Set an import/charge power ceiling below the breaker rating** before the first experiment. Defence in depth: whatever the schedule does, the site should not be able to exceed its service capacity. Verify it is active.
 - **Never** send `cmd` values you have not seen the app send. The app uses **17**, **123** (HES TOU) and **0** (newer settings pages) — and the library sends 17 everywhere. A wrong `cmd` with a valid body is the single most likely way to get an unexpected effect. Capture what *your* app sends first.
 - **Always** snapshot the full plan JSON (timestamped file) before writing, and verify by re-reading.
