@@ -57,14 +57,15 @@ capacity, never offered as a plan target.
 
 ## 3. Wall dashboard (Home)
 
-- **Purpose-built for distance.** One landscape composition: Solar Generation, Grid, Battery
-  and Home Consumption around a vector house, with colour-coded flow paths.
+- **Purpose-built for distance.** One landscape composition built around a large central
+  battery: Solar top-left, Grid top-right and Home Load bottom-left, with the vector house
+  behind the battery and colour-coded flow paths connecting the physical elements.
 - **Elastic scaling, no build step.** The stage uses one `--u` token
   (`clamp(4.6px, min(0.598vw, 1.063vh), 14px)`), refined in JS on resize. Every card, icon,
   gap and flow stroke is a multiple of it. No `transform: scale()` for the page, so text
   stays crisp. Reference composition is 1672×941; 4:3 and ultrawide are graceful. Narrow
   screens (≤700 px) fall back to a stacked layout; wider tall/square windows keep the
-  around-the-house composition and pull the cards closer instead of stacking them.
+  around-the-house composition and balance it vertically instead of stacking the cards.
 - **Vector-only artwork.** `static/assets/house.svg` is hand-built (walls, roof, solar array,
   windows, trees, lawn, ground). Icons are inline SVG; hills, stars and glow are inline
   SVG/CSS. No external images, fonts, CDNs or runtime AI calls.
@@ -72,17 +73,21 @@ capacity, never offered as a plan target.
   `importing/exporting/idle`, `charging/discharging/idle`, clamped SOC, per-edge flow
   activity and `live/stale/waiting/offline`. The browser renders values and sets
   `data-available`, `data-stale`, `data-solar`, `data-grid`, `data-battery`, `data-status`.
-  These are the hooks for the future animation pass; **this milestone has no live animation**.
-- **Flows are measured, not guessed.** `home-view.js` measures the cards and house slot and
-  redraws the SVG paths on resize/orientation change. Grid import runs card → house; export
-  runs house → card. Battery charging runs house → card; discharge runs card → house. The
-  arrow direction therefore matches the data even before animations exist.
-- **Stale is quiet but visible.** Cards dim, values keep their last reading, and the clock
-  status becomes amber `Stale · Ns` after 30 s without a frame. Unavailable telemetry shows
-  `—`, never a fake zero, and hides the flow layer.
+  These are the hooks for the future animation pass. The only motion is a short battery-fill
+  transition and flow-opacity fade; there is no looping icon animation.
+- **Flows are measured, not guessed.** `home-view.js` measures the solar/grid/home cards and
+  the battery shell, then redraws the SVG paths on resize/orientation change. Solar runs
+  card → battery; grid runs card ↔ battery (import/export); home runs battery → card when the
+  house is consuming. The battery is the visual hub; charge/discharge is shown by its fill
+  and glow. The house is background artwork, not a flow node.
+- **Stale is quiet but visible.** Cards and battery dim, values keep their last reading, and
+  a compact status line under the battery caption becomes amber `Stale · Ns` after 30 s
+  without a frame. Unavailable telemetry shows `—`, never a fake zero, and hides the flow
+  layer.
 - **No summary strip and no weather.** Both were deliberately deferred until an Anker stats
-  source exists. The bottom band is left available for a future strip; the clock and site
-  name occupy the corners.
+  source exists. The mockup intentionally removes the on-wall clock and site chip; the clock,
+  date and site identity now live in the plan drawer header. A status line appears under the
+  battery only when telemetry is not live.
 - **Clock** uses the site timezone from the account when present, otherwise the browser's
   local time. It updates once a minute (timer ticks every second but only writes on change).
 - **Kiosk-friendly.** The page never scrolls on Home in landscape; the drawer scrolls
@@ -237,8 +242,8 @@ headers or tokens.
 | 429 | no retry storm; asks you to wait |
 | Validation | caught in the browser, re-checked server-side |
 | Read-back mismatch | polls up to ~6 s (cloud is eventually consistent), then 409 + automatic restore + both plans |
-| Live feed down | cards show `—` + waiting/offline; flows hide; editor unaffected |
-| Live frame older than 30 s | values stay, cards dim, amber `Stale` |
+| Live feed down | cards and battery show `—` + waiting/offline; flows hide; editor unaffected |
+| Live frame older than 30 s | values stay, cards and battery dim, amber `Stale` |
 
 ---
 
@@ -263,5 +268,5 @@ headers or tokens.
   schedule save no longer alters stored prices. Omitting `buy` still clears it — never omit.
 - **Live data is per-account**; a site with no inverter exposes no feed. The site timezone
   is used when the account exposes one; otherwise the clock follows the browser.
-- **No live animations in this milestone.** State attributes and icon part classes are ready
-  for a CSS-only M2; `prefers-reduced-motion` already disables the flow transition.
+- **No looping live animations in this milestone.** State attributes and icon part classes
+  are ready for a CSS-only M2; `prefers-reduced-motion` disables the flow/fill transitions.

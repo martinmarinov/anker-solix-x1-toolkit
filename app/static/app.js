@@ -113,15 +113,10 @@ function setNet(kind, html, retry) {
 function siteMeta() {
   return state.sites.find((s) => s.id === state.site) || {};
 }
-function siteName() {
-  const s = siteMeta();
-  return s.name || "Site";
-}
 function applySiteTimezone() {
   const tz = siteMeta().timezone || "";
   state.siteTimezone = tz;
   HomeView.setTimezone(tz);
-  HomeView.setSite(siteName());
 }
 
 // HES enum, verified by the anker-solix-api live probe and the app model:

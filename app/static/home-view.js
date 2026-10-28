@@ -2,7 +2,7 @@
  *
  * Classic IIFE, no build step.  app.js owns auth/network and calls:
  *   HomeView.init()
- *   HomeView.setTimezone(tz) / setSite(name) / setDevice(label)
+ *   HomeView.setTimezone(tz) / setDevice(label)
  *   HomeView.render(view) / renderUnavailable(message)
  *   HomeView.startClock() / stopClock()
  *   HomeView.setAlert(message)
@@ -30,12 +30,13 @@
     flowLayer = $("flowLayer");
     els = {
       solar: $("vSolar"), grid: $("vGrid"), batt: $("vBatt"), home: $("vHome"),
-      solarState: $("solarState"), gridState: $("gridState"),
-      batteryState: $("batteryState"),
-      batteryFill: $("batteryFill"),
+      gridState: $("gridState"),
+      batteryHero: $("batteryHero"), batteryShell: $("batteryShell"),
+      batterySoc: $("batterySoc"),
+      batterySocUnit: $("batterySocUnit"), batterySummary: $("batterySummary"),
       clockTime: $("clockTime"), clockDate: $("clockDate"),
       statusDot: $("statusDot"), statusText: $("statusText"),
-      siteName: $("siteName"), alert: $("homeAlert")
+      liveStatus: $("liveStatus"), alert: $("homeAlert")
     };
     if (window.ResizeObserver) {
       var ro = new ResizeObserver(scheduleLayout);
@@ -69,10 +70,6 @@
     updateClock();
   }
 
-  function setSite(name) {
-    if (els.siteName) els.siteName.textContent = name || "Anker SOLIX X1";
-  }
-
   function setDevice(label) {
     var el = $("drawerDevice");
     if (el) el.textContent = label ? " · " + label : "";
@@ -101,6 +98,9 @@
     if (els.statusDot) {
       els.statusDot.className = "status-dot is-" + (level || "waiting");
     }
+    if (els.liveStatus) {
+      els.liveStatus.dataset.level = level || "waiting";
+    }
   }
 
   function render(view) {
@@ -124,31 +124,28 @@
     if (els.batt) els.batt.textContent = fmtKw(view.battery);
     if (els.home) els.home.textContent = fmtKw(view.home);
 
-    if (els.solarState) {
-      els.solarState.innerHTML = available
-        ? (view.solar.state === "producing" ? "Producing" : "Idle")
-        : (waiting ? "Waiting for telemetry" : "Unavailable");
-    }
     if (els.gridState) {
       els.gridState.textContent = available
         ? ((view.grid && view.grid.label) || "Idle")
-        : (waiting ? "Waiting for telemetry" : "Unavailable");
-    }
-    if (els.batteryState) {
-      els.batteryState.textContent = available
-        ? ((view.battery && view.battery.label) || "Idle")
-        : (waiting ? "Waiting for telemetry" : "Unavailable");
+        : "";
     }
 
     var soc = view.soc;
-    if (els.batteryFill) {
-      if (soc === null || soc === undefined || !available) {
-        els.batteryFill.setAttribute("height", "0");
-        els.batteryFill.setAttribute("y", "51");
+    var socOk = available && soc !== null && soc !== undefined &&
+                isFinite(Number(soc));
+    var kw = fmtKw(view.battery);
+    if (els.batteryHero) {
+      els.batteryHero.style.setProperty("--soc", socOk ? String(Number(soc)) : "0");
+    }
+    if (els.batterySoc) els.batterySoc.textContent = socOk ? String(Math.round(Number(soc))) : "—";
+    if (els.batterySocUnit) els.batterySocUnit.hidden = !socOk;
+    if (els.batterySummary) {
+      if (!available) {
+        els.batterySummary.textContent = "—";
+      } else if (socOk && kw !== "\u2014") {
+        els.batterySummary.textContent = kw + " kW · " + Math.round(Number(soc)) + "%";
       } else {
-        var h = Math.max(0, Math.min(36, 36 * (Number(soc) / 100)));
-        els.batteryFill.setAttribute("height", String(h));
-        els.batteryFill.setAttribute("y", String(15 + (36 - h)));
+        els.batterySummary.textContent = kw === "\u2014" ? "—" : kw + " kW";
       }
     }
 
@@ -269,7 +266,7 @@
   }
 
   function layoutFlows() {
-    if (!root || !flowLayer || !house) return;
+    if (!root || !flowLayer || !els.batteryShell) return;
     var stage = root.getBoundingClientRect();
     var w = Math.round(stage.width), h = Math.round(stage.height);
     if (!w || !h) return;
@@ -282,20 +279,17 @@
 
     var solarTile = rectOf(root.querySelector('[data-card="solar"]'));
     var gridTile = rectOf(root.querySelector('[data-card="grid"]'));
-    var battTile = rectOf(root.querySelector('[data-card="battery"]'));
     var homeTile = rectOf(root.querySelector('[data-card="home"]'));
-    var hr = rectOf(house);
-    if (!solarTile || !gridTile || !battTile || !homeTile || !hr) return;
+    var battery = rectOf(els.batteryShell);
+    if (!solarTile || !gridTile || !homeTile || !battery) return;
 
-    var roof = { x: hr.left + hr.width * 0.47, y: hr.top + hr.height * 0.39 };
-    var houseRight = { x: hr.left + hr.width * 0.88, y: hr.top + hr.height * 0.56 };
-    var houseLeft = { x: hr.left + hr.width * 0.13, y: hr.top + hr.height * 0.55 };
-    var houseBottom = { x: hr.left + hr.width * 0.50, y: hr.top + hr.height * 0.90 };
-
+    var gap = Math.max(4, u * 1.4);
+    var batteryTop = { x: battery.left + battery.width * 0.5, y: battery.top - gap };
+    var batteryRight = { x: battery.right + 2, y: battery.top + battery.height * 0.54 };
+    var batteryLeft = { x: battery.left - 2, y: battery.top + battery.height * 0.95 };
     var solarSrc = { x: solarTile.right, y: solarTile.top + solarTile.height / 2 };
-    var gridSrc = { x: gridTile.left + gridTile.width * 0.28, y: gridTile.bottom };
-    var battSrc = { x: battTile.right, y: battTile.top + battTile.height / 2 };
-    var homeTarget = { x: homeTile.left + homeTile.width / 2, y: homeTile.top };
+    var gridSrc = { x: gridTile.left + gridTile.width * 0.32, y: gridTile.bottom };
+    var homeTarget = { x: homeTile.right, y: homeTile.top + homeTile.height / 2 };
 
     var view = currentView || {};
     var flows = view.flows || {};
@@ -303,31 +297,22 @@
     var solarActive = !!(flows.solar && flows.solar.active);
     var gridImport = !!(flows.grid_import && flows.grid_import.active);
     var gridExport = !!(flows.grid_export && flows.grid_export.active);
-    var battCharge = !!(flows.battery_charge && flows.battery_charge.active);
-    var battDischarge = !!(flows.battery_discharge && flows.battery_discharge.active);
 
-    setFlow("solar", pathH(solarSrc.x, solarSrc.y, roof.x, roof.y), solarActive);
+    setFlow("solar", pathH(solarSrc.x, solarSrc.y, batteryTop.x, batteryTop.y), solarActive);
 
     if (gridExport && !gridImport) {
-      setFlow("grid", pathV(houseRight.x, houseRight.y, gridSrc.x, gridSrc.y), true);
+      setFlow("grid", pathV(batteryRight.x, batteryRight.y, gridSrc.x, gridSrc.y), true);
     } else {
-      setFlow("grid", pathV(gridSrc.x, gridSrc.y, houseRight.x, houseRight.y), gridImport);
-    }
-
-    if (battCharge && !battDischarge) {
-      setFlow("battery", pathH(houseLeft.x, houseLeft.y, battSrc.x, battSrc.y), true);
-    } else {
-      setFlow("battery", pathH(battSrc.x, battSrc.y, houseLeft.x, houseLeft.y), battDischarge);
+      setFlow("grid", pathV(gridSrc.x, gridSrc.y, batteryRight.x, batteryRight.y), gridImport);
     }
 
     var homeActive = !!available && view.home && view.home.state === "consuming";
-    setFlow("home", pathV(houseBottom.x, houseBottom.y, homeTarget.x, homeTarget.y), homeActive);
+    setFlow("home", pathV(batteryLeft.x, batteryLeft.y, homeTarget.x, homeTarget.y), homeActive);
   }
 
   window.HomeView = {
     init: init,
     setTimezone: setTimezone,
-    setSite: setSite,
     setDevice: setDevice,
     setAlert: setAlert,
     render: render,

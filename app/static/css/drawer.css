@@ -278,3 +278,32 @@ table.periods td {
 @media (prefers-reduced-motion: reduce) {
   .drawer, .drawer-backdrop { transition: none; }
 }
+
+/* Clock moved out of the wall Home view so the mockup stays uncluttered. */
+.drawer-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1px;
+  margin-right: 4px;
+  line-height: 1.05;
+  white-space: nowrap;
+}
+.drawer-clock__time {
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.drawer-clock__date {
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: .02em;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 900px) {
+  .drawer-clock { display: none; }
+}

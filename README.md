@@ -18,10 +18,10 @@ site or device is built in.
   contiguous, wraps split, one buy/sell price per tariff).
 - Writes through the same `charging_hes_svc/device_command` call the Android app uses,
   then polls the read-back and rolls back on a real mismatch.
-- **Wall-display dashboard** — a full-screen dark live view with solar, grid, battery and
-  home cards, a vector house and measured flow paths. The plan editor lives behind an
-  always-visible burger. No external assets; the display scales elastically and is built for
-  a landscape picture-frame browser.
+- **Wall-display dashboard** — a full-screen dark live view built around a large central
+  battery, with solar/grid/home indicators, a vector house and measured flow paths. The plan
+  editor lives behind an always-visible burger. No external assets; the display scales
+  elastically and is built for a landscape picture-frame browser.
 - Supports multiple sites and multiple inverters.
 
 The server, session handling and MQTT feed are shared infrastructure: new features (settings,

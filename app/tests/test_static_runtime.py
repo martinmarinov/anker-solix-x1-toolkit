@@ -41,12 +41,24 @@ class StaticRuntimeTests(unittest.TestCase):
 
     def test_live_cards_start_empty_and_plan_controls_disabled(self):
         html = INDEX.read_text(encoding="utf-8")
+        self.assertIn('id="batteryHero"', html)
         self.assertIn('id="batteryFill"', html)
-        self.assertRegex(html, r'id="batteryFill"[^>]*height="0"')
+        self.assertIn('id="batteryShell"', html)
+        self.assertRegex(html, r'id="batteryHero"[^>]*style="--soc:0"')
+        self.assertRegex(html, r'id="batterySoc">—</span>')
+        self.assertRegex(html, r'id="batterySummary">—</span>')
+        self.assertRegex(html, r'id="batterySocUnit"[^>]*hidden')
+        self.assertIn('id="liveStatus"', html)
+        self.assertIn('id="clockTime"', html)
         self.assertRegex(html, r'id="reserveSoc"[^>]*disabled')
         self.assertRegex(html, r'id="gridCharging"[^>]*disabled')
         for value_id in ("vSolar", "vGrid", "vBatt", "vHome"):
             self.assertRegex(html, rf'id="{value_id}">—</span>')
+        self.assertNotIn('id="siteName"', html)
+        self.assertIn('data-flow="solar"', html)
+        self.assertIn('data-flow="grid"', html)
+        self.assertIn('data-flow="home"', html)
+        self.assertNotIn('data-flow="battery"', html)
 
 
 if __name__ == "__main__":
