@@ -136,27 +136,33 @@
   column-gap: calc(var(--u) * 2.1);
 }
 
-/* The active meter band owns the whole card accent. Keep these rules after
-   the per-card defaults so the state always wins. */
+/* The active meter band also owns the card accent: value, unit, icon, top
+   rule and shadow use the same fill as the bars. Keep these rules after the
+   per-card defaults so the state always wins. */
 .tile[data-level="green"] {
-  --card-accent: var(--good);
-  --card-accent-rgb: var(--good-rgb);
+  --card-accent: var(--bar-green);
+  --card-accent-rgb: var(--bar-green-rgb);
+  --card-edge: var(--edge-green);
 }
 .tile[data-level="amber"] {
-  --card-accent: var(--warn);
-  --card-accent-rgb: var(--warn-rgb);
+  --card-accent: var(--bar-amber);
+  --card-accent-rgb: var(--bar-amber-rgb);
+  --card-edge: var(--edge-amber);
 }
 .tile[data-level="red"] {
   --card-accent: var(--bad);
   --card-accent-rgb: var(--bad-rgb);
+  --card-edge: var(--edge-red);
 }
 .tile[data-level="export"] {
-  --card-accent: var(--grid-ink);
-  --card-accent-rgb: var(--grid-ink-rgb);
+  --card-accent: var(--bar-blue);
+  --card-accent-rgb: var(--bar-blue-rgb);
+  --card-edge: var(--edge-blue);
 }
 .tile[data-level="off"] {
   --card-accent: var(--muted);
   --card-accent-rgb: var(--muted-rgb);
+  --card-edge: var(--edge-off);
 }
 
 .tile-icon {
@@ -164,6 +170,12 @@
   width: calc(calc(var(--u) * 7.8) * var(--type-scale));
   height: calc(calc(var(--u) * 7.8) * var(--type-scale));
   color: var(--card-accent);
+  /* Four 1px shadows trace the SVG silhouette without altering its paths. */
+  filter:
+    drop-shadow(1px 0 0 var(--card-edge))
+    drop-shadow(-1px 0 0 var(--card-edge))
+    drop-shadow(0 1px 0 var(--card-edge))
+    drop-shadow(0 -1px 0 var(--card-edge));
 }
 .tile-icon svg { display: block; width: 100%; height: 100%; }
 
@@ -171,8 +183,6 @@
 .solar-icon[data-icon="sun"] .solar-icon__sun { display: block; }
 .solar-icon[data-icon="moon"] .solar-icon__moon { display: block; }
 .solar-icon[data-icon="cloud"] .solar-icon__cloud { display: block; }
-.solar-icon[data-icon="moon"],
-.solar-icon[data-icon="cloud"] { color: var(--muted); }
 
 .tile-body { min-width: 0; flex: 1 1 auto; }
 
@@ -208,6 +218,12 @@
   color: inherit;
 }
 
+/* The bright fills are low-contrast on cream; the readout gets a 1px dark edge. */
+.tile-value,
+.tile-unit {
+  -webkit-text-stroke: 1px var(--card-edge);
+}
+
 .tile-foot {
   margin-top: calc(var(--u) * .35);
   min-height: 1.1em;
@@ -220,10 +236,12 @@
   text-overflow: ellipsis;
 }
 
-/* Five-segment Home Load meter. One/two bars are green, three/four amber,
-   five red. The level is set by HomeView from view.home.w.
+/* Five-segment power meters shared by Solar, Grid and Home Load. One/two bars
+   are green, three/four amber and five red; Grid export uses blue. Fills are
+   the bright Skylight accents, and the card readout matches them.
    Solid fills, no glow: the panel's contrast is modest and thin luminous
-   lines disappear at distance. */
+   lines disappear at distance. The 1px ink rim on a lit bar darkens the fill
+   at its own edge and keeps the pale silhouettes crisp. */
 .power-bars {
   --bar-color: var(--muted);
   grid-column: 1 / -1;
@@ -232,10 +250,10 @@
   gap: calc(var(--u) * .7);
   width: 100%;
 }
-.power-bars[data-level="green"] { --bar-color: var(--good); }
-.power-bars[data-level="amber"] { --bar-color: var(--warn); }
+.power-bars[data-level="green"] { --bar-color: var(--bar-green); }
+.power-bars[data-level="amber"] { --bar-color: var(--bar-amber); }
 .power-bars[data-level="red"] { --bar-color: var(--bad); }
-.power-bars[data-level="export"] { --bar-color: var(--grid-ink); }
+.power-bars[data-level="export"] { --bar-color: var(--bar-blue); }
 .power-bars[data-level="off"] { --bar-color: var(--muted); }
 
 .power-bar {
@@ -247,7 +265,7 @@
   transition: background-color .35s ease, border-color .35s ease;
 }
 .power-bar.is-on {
-  border-color: var(--bar-color);
+  border-color: var(--bar-edge);
   background: var(--bar-color);
 }
 

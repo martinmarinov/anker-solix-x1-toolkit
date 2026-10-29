@@ -201,28 +201,101 @@ class StaticRuntimeTests(unittest.TestCase):
         self.assertIn("--battery-ink-rgb", js)
         self.assertIn("batteryTone", js)
 
-    def test_card_accent_follows_the_active_meter_band(self):
+    def test_card_accent_matches_the_active_meter_fill(self):
         css = (STATIC / "css/home.css").read_text(encoding="utf-8")
-        for level, token in (("green", "good"), ("amber", "warn"),
-                             ("red", "bad"), ("export", "grid-ink"),
-                             ("off", "muted")):
+        for level, token, rgb in (("green", "bar-green", "bar-green-rgb"),
+                                  ("amber", "bar-amber", "bar-amber-rgb"),
+                                  ("red", "bad", "bad-rgb"),
+                                  ("export", "bar-blue", "bar-blue-rgb"),
+                                  ("off", "muted", "muted-rgb")):
             self.assertIn(f'.tile[data-level="{level}"]', css)
             self.assertIn(f"--card-accent: var(--{token});", css)
+            self.assertIn(f"--card-accent-rgb: var(--{rgb});", css)
             self.assertIn(f'.power-bars[data-level="{level}"]', css)
-        self.assertIn('.power-bars[data-level="green"] { --bar-color: var(--good); }', css)
-        self.assertIn('.power-bars[data-level="amber"] { --bar-color: var(--warn); }', css)
-        self.assertIn('.power-bars[data-level="red"] { --bar-color: var(--bad); }', css)
-        self.assertIn('.power-bars[data-level="export"] { --bar-color: var(--grid-ink); }', css)
         self.assertIn("rgba(var(--card-accent-rgb), .18)", css)
         icon = re.search(r"\.tile-icon \{(.*?)\}", css, re.S)
+        value = re.search(r"\.tile-value \{(.*?)\}", css, re.S)
         unit = re.search(r"\.tile-unit \{(.*?)\}", css, re.S)
         self.assertIsNotNone(icon)
+        self.assertIsNotNone(value)
         self.assertIsNotNone(unit)
         self.assertIn("color: var(--card-accent)", icon.group(1))
+        self.assertIn("color: var(--card-accent)", value.group(1))
         self.assertIn("color: inherit", unit.group(1))
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
         self.assertIn("function setCardLevel", js)
         self.assertEqual(js.count("setCardLevel(el, band)"), 3)
+
+    def test_meter_bars_use_the_skylight_palette(self):
+        base = (STATIC / "css/base.css").read_text(encoding="utf-8")
+        for token, value, rgb in (("bar-green", "#7acc70", "122, 204, 112"),
+                                  ("bar-amber", "#e6be4a", "230, 190, 74"),
+                                  ("bar-blue", "#447cd6", "68, 124, 214")):
+            self.assertIn(f"--{token}: {value};", base)
+            self.assertIn(f"--{token}-rgb: {rgb};", base)
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        for level, token in (("green", "bar-green"),
+                             ("amber", "bar-amber"),
+                             ("red", "bad"),
+                             ("export", "bar-blue"),
+                             ("off", "muted")):
+            self.assertIn(
+                f'.power-bars[data-level="{level}"] '
+                f'{{ --bar-color: var(--{token}); }}',
+                css,
+            )
+        # The card accent reads these same tokens; the rim below keeps the
+        # pale bar silhouettes above the 3:1 non-text floor.
+
+    def test_solar_icon_inherits_the_card_accent(self):
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        self.assertNotRegex(
+            css,
+            r'\.solar-icon\[data-icon="(?:moon|cloud)"\][^{]*\{[^}]*color:',
+        )
+
+    def test_filled_bars_have_a_dark_rim(self):
+        base = (STATIC / "css/base.css").read_text(encoding="utf-8")
+        self.assertIn("--bar-edge: rgba(23, 37, 47, .40);", base)
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        lit = re.search(r"\.power-bar\.is-on \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(lit)
+        self.assertIn("border-color: var(--bar-edge)", lit.group(1))
+        self.assertIn("background: var(--bar-color)", lit.group(1))
+        track = re.search(r"\.power-bar \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(track)
+        self.assertIn("border: 1px solid rgba(122, 108, 88, .18)",
+                      track.group(1))
+
+    def test_card_readout_and_icon_have_a_dark_outline(self):
+        base = (STATIC / "css/base.css").read_text(encoding="utf-8")
+        for token, value in (("edge-green", "#5f9661"),
+                             ("edge-amber", "#a18c48"),
+                             ("edge-blue", "#3561a4"),
+                             ("edge-red", "#862c30"),
+                             ("edge-off", "#4b565e")):
+            self.assertIn(f"--{token}: {value};", base)
+        self.assertIn("--card-edge: var(--edge-off);", base)
+        self.assertNotIn("rgba(23, 37, 47, .65)", base)
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        for level, edge in (("green", "edge-green"),
+                            ("amber", "edge-amber"),
+                            ("red", "edge-red"),
+                            ("export", "edge-blue"),
+                            ("off", "edge-off")):
+            self.assertIn(f"--card-edge: var(--{edge});", css)
+        readout = re.search(r"\.tile-value,\s*\.tile-unit \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(readout)
+        self.assertIn("-webkit-text-stroke: 1px var(--card-edge)",
+                      readout.group(1))
+        icon = re.search(r"\.tile-icon \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(icon)
+        self.assertEqual(icon.group(1).count("drop-shadow("), 4)
+        for edge in ("1px 0 0", "-1px 0 0", "0 1px 0", "0 -1px 0"):
+            self.assertIn(
+                f"drop-shadow({edge} var(--card-edge))",
+                icon.group(1),
+            )
 
     def test_portrait_home_wire_routes_around_the_caption(self):
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
