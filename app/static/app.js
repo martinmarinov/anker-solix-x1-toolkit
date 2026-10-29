@@ -27,6 +27,11 @@ const state = {
   limits: null, limitsCheck: null, devices: [], busy: false,
   devicesLoaded: false, planLoaded: false, planLoading: false,
   liveTimer: null, drawerOpen: false, siteTimezone: "",
+  mqttInterval: 5, mqttSaved: 5, mqttActive: 5, mqttPending: null,
+  mqttBounds: { min: 5, max: 60, step: 5, default: 5 },
+  refreshEditing: false, refreshSaving: false, refreshNote: "",
+  refreshNoteKind: "", refreshTimer: null, liveSeq: 0, liveFailures: 0,
+  liveInFlight: false,
   linkDays: (() => {
     try { const v = localStorage.getItem("anker.linkDays"); return v === null ? true : v === "1"; }
     catch { return true; }
@@ -282,6 +287,11 @@ $("loginForm").addEventListener("submit", async (e) => {
     state.user = js.user;
     state.sites = js.sites || [];
     if (!state.sites.length) throw new Error("No sites on this account.");
+    state.mqttInterval = Number(js.mqtt_interval_s) || 5;
+    state.mqttSaved = state.mqttInterval;
+    state.mqttActive = state.mqttInterval;
+    state.mqttPending = null;
+    state.mqttBounds = js.mqtt_bounds || state.mqttBounds;
     state.site = state.sites[0].id;
     await enterApp();
   } catch (err) {
@@ -298,6 +308,7 @@ async function enterApp() {
   $("menuBtn").classList.remove("has-error");
   applySiteTimezone();
   renderSites();
+  renderRefresh();
   const s = siteMeta();
   $("who").textContent = state.user
     ? `${state.user.nick || ""}${s && s.name ? " · " + s.name : ""}`
@@ -444,6 +455,98 @@ async function ensurePlan() {
 
 /* ------------------------------------------------------------ live data */
 
+function fmtInterval(value) {
+  const n = Number(value);
+  if (!isFinite(n)) return "—";
+  if (n >= 60) return n % 60 === 0 ? `${n / 60} min` : `${n} s`;
+  return `${n} s`;
+}
+
+function setRefreshNote(text, kind) {
+  state.refreshNote = text || "";
+  state.refreshNoteKind = kind || "";
+  if (state.refreshTimer) clearTimeout(state.refreshTimer);
+  if (text) {
+    state.refreshTimer = setTimeout(() => {
+      state.refreshNote = "";
+      state.refreshNoteKind = "";
+      renderRefresh();
+    }, 4000);
+  }
+}
+
+function renderRefresh() {
+  const range = $("refreshRange");
+  if (!range) return;
+  const bounds = state.mqttBounds || {};
+  if (bounds.min !== undefined) range.min = String(bounds.min);
+  if (bounds.max !== undefined) range.max = String(bounds.max);
+  if (bounds.step !== undefined) range.step = String(bounds.step);
+  if (!state.refreshEditing) range.value = String(state.mqttInterval);
+  range.disabled = !!state.refreshSaving;
+
+  const selected = Number(state.mqttInterval);
+  const value = $("refreshValue");
+  if (value) value.textContent = fmtInterval(selected);
+  range.setAttribute("aria-valuetext", `${fmtInterval(selected)} refresh`);
+
+  const meta = $("refreshMeta");
+  if (meta) {
+    if (state.mqttPending) {
+      meta.textContent =
+        `Every ${fmtInterval(state.mqttActive)} now · ` +
+        `${fmtInterval(state.mqttPending)} after the current refresh`;
+    } else {
+      meta.textContent = `Every ${fmtInterval(state.mqttActive || selected)}`;
+    }
+  }
+
+  const status = $("refreshStatus");
+  if (status) {
+    status.textContent = state.refreshSaving ? "Saving…"
+      : (state.refreshNote ||
+         (state.mqttPending ? "Applies after the current refresh" : ""));
+    const kind = state.refreshSaving ? ""
+      : (state.refreshNoteKind || (state.mqttPending ? "saved" : ""));
+    status.className = "refresh-status small" +
+      (kind === "error" ? " is-error" : kind === "saved" ? " is-saved" : "");
+  }
+}
+
+async function saveRefresh() {
+  if (!state.site) return;
+  const requested = Number(state.mqttInterval);
+  state.refreshSaving = true;
+  state.refreshNote = "";
+  state.refreshNoteKind = "";
+  renderRefresh();
+  try {
+    const js = await api("/api/live/interval", {
+      method: "POST",
+      body: JSON.stringify({ interval_s: requested }),
+      timeout: 12000,
+    });
+    state.mqttSaved = js.mqtt_interval_s;
+    state.mqttInterval = js.mqtt_interval_s;
+    state.mqttBounds = js.mqtt_bounds || state.mqttBounds;
+    state.mqttPending = js.pending_interval_s || null;
+    const first = (js.feeds || [])[0];
+    state.mqttActive = first ? first.interval_s : js.mqtt_interval_s;
+    state.refreshSaving = false;
+    state.refreshEditing = false;
+    setRefreshNote(js.pending_interval_s
+      ? "Applies after the current refresh" : "Saved", "saved");
+    renderRefresh();
+    loadLive();
+  } catch (e) {
+    state.refreshSaving = false;
+    state.refreshEditing = false;
+    state.mqttInterval = state.mqttSaved;
+    setRefreshNote(e.message || "Could not save the refresh setting.", "error");
+    renderRefresh();
+  }
+}
+
 function startLive() {
   stopLive();
   if (!state.site) return;
@@ -455,32 +558,72 @@ function startLive() {
 
 function stopLive() {
   if (state.liveTimer) { clearInterval(state.liveTimer); state.liveTimer = null; }
+  state.liveSeq += 1; // drop any response still in flight
+  state.liveFailures = 0;
+  state.liveInFlight = false;
 }
 
 async function loadLive() {
-  if (!state.site) return;
+  if (!state.site || state.liveInFlight) return;
   const site = state.site;
   const sn = state.sn;
+  const seq = ++state.liveSeq;
+  state.liveInFlight = true;
   const q = new URLSearchParams({ site });
   if (sn) q.set("sn", sn);
   try {
     const js = await api(`/api/live?${q}`, { timeout: 8000 });
+    if (seq !== state.liveSeq) return; // a newer poll has already started
     if (site !== state.site || (sn && sn !== state.sn)) return; // stale response
+    state.liveFailures = 0;
     if (js.timezone && js.timezone !== state.siteTimezone) {
       state.siteTimezone = js.timezone;
       HomeView.setTimezone(js.timezone);
     }
+    if (js.mqtt_bounds) state.mqttBounds = js.mqtt_bounds;
+    const active = js.live_stats && js.live_stats.interval_s;
+    const pending = js.live_stats && js.live_stats.pending_interval_s;
+    if (!state.refreshEditing && !state.refreshSaving) {
+      state.mqttSaved = Number(js.mqtt_interval_s) || state.mqttSaved;
+      state.mqttInterval = state.mqttSaved;
+      state.mqttActive = Number(active) || state.mqttSaved;
+      state.mqttPending = pending || null;
+      renderRefresh();
+    }
     if (js.view) HomeView.render(js.view);
   } catch (e) {
+    if (seq !== state.liveSeq) return;
     if (e.kind === "auth") { stopLive(); show("login"); return; }
     if (site !== state.site) return;
+    state.liveFailures += 1;
+    // One dropped local poll is not an offline feed; keep the last view.
+    if (state.liveFailures < 2) return;
     HomeView.renderUnavailable(e.message);
+  } finally {
+    if (seq === state.liveSeq) state.liveInFlight = false;
   }
 }
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && state.site && !$("appView").classList.contains("hide")) loadLive();
 });
+
+if ($("refreshRange")) {
+  $("refreshRange").addEventListener("pointerdown", () => {
+    state.refreshEditing = true;
+  });
+  $("refreshRange").addEventListener("input", (e) => {
+    if (state.refreshSaving) return;
+    state.refreshEditing = true;
+    state.mqttInterval = Number(e.target.value);
+    renderRefresh();
+  });
+  $("refreshRange").addEventListener("change", (e) => {
+    if (state.refreshSaving) return;
+    state.mqttInterval = Number(e.target.value);
+    saveRefresh();
+  });
+}
 
 /* --------------------------------------------------------- home rendering */
 
@@ -1244,6 +1387,11 @@ $("logoutBtn").addEventListener("click", async () => {
     state.user = js.user;
     state.sites = js.sites || [];
     if (!state.sites.length) { show("login"); return; }
+    state.mqttInterval = Number(js.mqtt_interval_s) || 5;
+    state.mqttSaved = state.mqttInterval;
+    state.mqttActive = state.mqttInterval;
+    state.mqttPending = null;
+    state.mqttBounds = js.mqtt_bounds || state.mqttBounds;
     state.site = state.sites[0].id;
     await enterApp();
   } catch (e) {

@@ -241,6 +241,32 @@ class StaticRuntimeTests(unittest.TestCase):
             self.assertIn(colour, svg)
         self.assertLess(svg.count("<linearGradient"), 10)
 
+    def test_refresh_slider_is_bounded_to_sixty(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertRegex(html, r'id="refreshRange"[^>]*min="5"[^>]*max="60"')
+        self.assertIn('step="5"', html)
+        for element in ("refreshValue", "refreshMeta", "refreshStatus"):
+            self.assertIn(f'id="{element}"', html)
+        css = (STATIC / "css/drawer.css").read_text(encoding="utf-8")
+        self.assertIn('.refresh-row input[type="range"]', css)
+        self.assertIn("accent-color: var(--accent);", css)
+        js = (STATIC / "app.js").read_text(encoding="utf-8")
+        self.assertIn('"/api/live/interval"', js)
+        self.assertIn("function saveRefresh", js)
+        self.assertIn("state.liveSeq", js)
+
+    def test_home_view_no_longer_filters_battery_locally(self):
+        js = (STATIC / "home-view.js").read_text(encoding="utf-8")
+        self.assertNotIn("BATTERY_FILTER_MS", js)
+        self.assertNotIn("batteryPowerSamples", js)
+        self.assertIn("batt.hours_to_empty", js)
+        self.assertIn("batt.hours_to_full", js)
+
+    def test_drawer_about_describes_the_read_only_wake(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertNotIn("never publishes", html)
+        self.assertIn("realtime wake request", html)
+
 
 if __name__ == "__main__":
     unittest.main()

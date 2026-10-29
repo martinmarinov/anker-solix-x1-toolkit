@@ -135,6 +135,42 @@ class HomeViewTests(unittest.TestCase):
         self.assertEqual(view["status"]["level"], "waiting")
         self.assertEqual(view["status"]["label"], "Requesting live data")
 
+    def test_waking_keeps_last_values_and_is_not_stale(self):
+        view = build_home_view({
+            "available": True, "waking": True, "stale": True, "age_s": 12,
+            "soc": 60, "pp": 1800, "gp": 200, "bp": 0, "lp": 1600,
+        })
+        self.assertTrue(view["available"])
+        self.assertFalse(view["stale"])
+        self.assertEqual(view["status"]["level"], "waking")
+        self.assertEqual(view["status"]["label"], "Refreshing · 12s")
+        self.assertEqual(view["solar"]["w"], 1800)
+
+    def test_stale_age_uses_minutes_after_sixty(self):
+        view = build_home_view({
+            "available": True, "stale": True, "age_s": 125,
+            "pp": 1000, "gp": 0, "bp": 0, "lp": 1000,
+        })
+        self.assertEqual(view["status"]["label"], "Stale · 2m 5s")
+
+    def test_eta_uses_server_average(self):
+        view = build_home_view({
+            "available": True, "soc": 50, "pp": 0, "gp": 0, "lp": 0,
+            "bp": 3000, "batt_avg_kw": 1.0, "nominal_capacity_kwh": 15,
+            "reserve_soc": 5,
+        })
+        self.assertEqual(view["battery"]["hours_to_empty"], 6.41)
+        self.assertIsNone(view["battery"]["hours_to_full"])
+
+    def test_charging_eta_uses_server_average(self):
+        view = build_home_view({
+            "available": True, "soc": 50, "pp": 0, "gp": 0, "lp": 0,
+            "bp": -3000, "batt_avg_kw": 1.0, "nominal_capacity_kwh": 15,
+            "reserve_soc": 5,
+        })
+        self.assertEqual(view["battery"]["hours_to_full"], 8.68)
+        self.assertIsNone(view["battery"]["hours_to_empty"])
+
     def test_numeric_zero_is_live_idle(self):
         view = build_home_view({"available": True, "pp": 0, "gp": 0,
                                 "bp": 0, "lp": 0, "soc": 0})

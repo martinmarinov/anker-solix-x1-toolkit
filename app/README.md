@@ -78,7 +78,7 @@ capacity, never offered as a plan target.
   system sans, which resolves to Roboto in the Skylight WebView.
 - **Live state in one place.** The server normalises raw MQTT into a small `view`:
   `importing/exporting/idle`, `charging/discharging/idle`, clamped SOC, per-edge flow
-  activity and `live/stale/waiting/offline`. The browser renders values and sets
+  activity and `live/waking/stale/waiting/offline`. The browser renders values and sets
   `data-available`, `data-stale`, `data-solar`, `data-grid`, `data-battery`, `data-status`.
   The battery accent interpolates with SOC: green above 80%, blending through amber at 30%,
   then red at 5% (smoothstep between stops). Each tone pairs a bright fill with a dark ink
@@ -109,9 +109,10 @@ capacity, never offered as a plan target.
   3–4 amber below 5/10 kW, and 5 red at 10 kW or above. Both directions stay unlit below
   50 W so inverter ramp-up/down does not flicker the meter.
 - **Stale is quiet but visible.** Cards and battery dim, values keep their last reading, and
-  a compact status line under the battery caption becomes amber `Stale · Ns` after 30 s
-  without a frame. Unavailable telemetry shows `—`, never a fake zero, and hides the flow
-  layer.
+  a compact status line under the battery caption becomes amber `Stale · Ns` when the frame
+  is older than the cadence's threshold (30 s at 5 s, 50 s at 30 s, 95 s at 60 s). A wake in
+  flight shows `Refreshing · Ns` instead, keeping the last values. Unavailable telemetry
+  shows `—`, never a fake zero, and hides the flow layer.
 - **No summary strip and no weather.** Both were deliberately deferred until an Anker stats
   source exists. The mockup intentionally removes the on-wall clock and site chip; the clock,
   date and site identity now live in the plan drawer header. A status line appears under the
@@ -122,9 +123,17 @@ capacity, never offered as a plan target.
   independently. Fullscreen is available from the drawer. `prefers-reduced-motion` is
   respected from day one.
 
-Transport: one MQTT connection per site+inverter, mTLS, **subscribe-only**. The inverter
-publishes an `ems` frame every ~5 s. The browser polls **our** `/api/live` every 2 s (and
-skips hidden tabs); upstream load is strictly lower than the Android app.
+Transport: one MQTT connection per site+inverter, mTLS. The feed subscribes to the exact
+`dt` topics and publishes only the read-only realtime wake request; it never writes a plan
+or controller setting. The inverter publishes an `ems` frame at the selected interval while a window is
+active. The browser polls **our** `/api/live` every 2 s (and skips hidden tabs); upstream
+load is lower than the Android app at every cadence above 5 s.
+
+The **Live refresh** slider in the drawer selects a 5–60 s cadence. The server asks for the
+proven 60-frame/5 s window at 5 s and for two frames at a time above 5 s, renewing after the
+second frame. A concurrent 5 s wake from the wall panel is allowed: its faster frames are
+treated as live and suppress our own wake. The choice is stored in the
+`anker_tou_mqtt_s` preference cookie, which survives sign-out and account switches.
 
 
 ---
@@ -189,6 +198,7 @@ the app saved. The full method is in `REPORT.md` §17.
 |---|---|
 | Credentials | Used once in memory; password reference cleared. Never written to disk or logged. |
 | Session | `HttpOnly; SameSite=Strict` cookie → in-process dict; optional AES-256-GCM record at `~/.anker-tou/session.bin` (`0600`). |
+| Refresh preference | Separate `anker_tou_mqtt_s` cookie (`HttpOnly`, one year); never cleared by sign-out; no credential value. |
 | CSRF | SameSite=Strict + `Origin` check + required `X-Anker-Client: 1` header; CORS disabled. |
 | Headers | CSP (`default-src 'self'`), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`. |
 | Brute force | 8 login attempts per IP / 5 min → 429. |
@@ -207,7 +217,7 @@ the app saved. The full method is in `REPORT.md` §17.
 The app is a single Python process with no external database. For a public instance:
 
 1. **Terminate TLS** at a reverse proxy (Caddy/nginx) and forward to `127.0.0.1:8770`.
-2. Run with `--secure-cookies` so the session cookie is `Secure`.
+2. Run with `--secure-cookies` so both the session and preference cookies are `Secure`.
 3. Prefer `--no-persist` on shared instances: no token is written to disk and each restart
    requires sign-in.
 4. Keep `--host 127.0.0.1` unless the proxy is on another host; never expose plain HTTP.
@@ -249,7 +259,7 @@ python3 app/server.py --host 127.0.0.1 --port 8770 --secure-cookies --no-persist
 | `--host` | `127.0.0.1` | bind address |
 | `--port` | `8770` | bind port |
 | `--no-persist` | off | memory-only sessions |
-| `--secure-cookies` | off | add `Secure` to the session cookie |
+| `--secure-cookies` | off | add `Secure` to both cookies |
 | `--use-keychain` | off | store the at-rest key in the macOS Keychain |
 
 State lives in `~/.anker-tou/` (override with `ANKER_TOU_HOME` if set by your deployment).
@@ -271,7 +281,8 @@ headers or tokens.
 | Validation | caught in the browser, re-checked server-side |
 | Read-back mismatch | polls up to ~6 s (cloud is eventually consistent), then 409 + automatic restore + both plans |
 | Live feed down | cards and battery show `—` + waiting/offline; flows hide; editor unaffected |
-| Live frame older than 30 s | values stay, cards and battery dim, amber `Stale` |
+| Live frame older than the cadence threshold | values stay, cards and battery dim, amber `Stale` |
+| Wake in flight (up to 60 s) | values stay, dimmed, `Refreshing · Ns`; not `Stale` |
 
 ---
 

@@ -206,8 +206,8 @@ dt/anker_power/<model>/<sn>/param_info
 dt/anker_power/<model>/<sn>/state_info
 ```
 
-The EMS frame used by the home screen is `…/troubleshot_info/ems_second`, arriving about
-every **5 s**. Wildcards are rejected by the broker ACL; subscribe to the exact topics.
+The EMS frame used by the home screen is `…/troubleshot_info/ems_second`, arriving at
+the cadence requested in the wake (`interval`); the captured stream was about **5 s**. Wildcards are rejected by the broker ACL; subscribe to the exact topics.
 Outer JSON:
 
 ```json
@@ -233,8 +233,48 @@ Outer JSON:
 | `soc` | state of charge (%) |
 | `ps` / `gs` / `bs` / `es` | PV / grid / battery / EMS state |
 
-The flow fields are non-negative per edge, so direction is explicit. Subscribe-only;
-never publish commands from this app.
+The flow fields are non-negative per edge, so direction is explicit. The feed
+subscribes read-only and publishes only the read-only realtime wake request
+below; it never writes a plan, controller mode or charge power.
+
+### Realtime wake (`cmd: 9`)
+
+If no frame arrives, the local feed publishes:
+
+```text
+cmd/anker_power/<model>/<sn>/req
+
+{"head":{"version":"1.0.0.1","client_id":"cloud","cmd":9,
+         "cmd_status":2,"sign_code":0,...},
+ "payload":"{\"account_id\":\"…\",\"device_sn\":\"…\",\"trans\":\"<base64>\"}"}
+```
+
+`trans`:
+
+```json
+{"sn":"<sn>","subDeviceType":"ems","subSn":"<sn>","messageId":"<32 hex>",
+ "cmdId":4,"config":{"count":2,"interval":60},
+ "startTime":0,"duration":0,"primary":0,"type":0}
+```
+
+The device accepts the production `count=60, interval=5` window. Above 5 s the
+confirmed shape is `count=2`; the server renews after the second frame. Longer
+windows above 5 s are not requested because they fell back to a 5 s stream in
+the 2026-10-29 probe (the Skylight's older 5 s wake was also running, so the
+fallback was not conclusively attributed to the device).
+
+Local server contract:
+
+| Method | Path | Meaning |
+|---|---|---|
+| `GET` | `/api/state` | `mqtt_interval_s` + `mqtt_bounds` alongside the session |
+| `GET` | `/api/live` | `mqtt_interval_s`, `stale_after_s`, `live_stats` (`interval_s`, `count`, `pending_interval_s`, `last_gap_s`, `waking`) |
+| `POST` | `/api/live/interval` | `{"interval_s": 5…60}`; clamps to a 5 s step, updates the session and every active feed, sets the preference cookie |
+
+The preference cookie is `anker_tou_mqtt_s` (`HttpOnly; SameSite=Strict; Path=/;
+Max-Age=31536000`, plus `Secure` with `--secure-cookies`). It is not the session
+cookie and deliberately survives sign-out and account switches. A change while
+a window is active is stored as pending and applied at the next window boundary.
 
 ## Cross-check with `anker-solix-api` #313
 

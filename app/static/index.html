@@ -299,6 +299,27 @@
       <div class="grid">
         <div id="netBanner" class="banner info">Connecting…</div>
 
+        <div class="card refresh-card">
+          <div class="row refresh-head">
+            <h2>Live refresh <span class="sub">MQTT cadence</span></h2>
+            <output id="refreshValue" class="refresh-value" for="refreshRange">5 s</output>
+          </div>
+          <div class="refresh-row">
+            <input id="refreshRange" type="range" min="5" max="60" step="5" value="5"
+                   aria-label="MQTT refresh interval in seconds"
+                   aria-valuetext="5 seconds">
+            <div class="refresh-scale"><span>5 s</span><span>30 s</span><span>60 s</span></div>
+          </div>
+          <div id="refreshMeta" class="small muted">Every 5 s</div>
+          <div id="refreshStatus" class="refresh-status small" role="status"
+               aria-live="polite"></div>
+          <p class="small muted refresh-help">
+            The browser still polls this server every 2 s. Anker MQTT is re-requested
+            at this cadence; a cold wake can take up to a minute and shows
+            <b>Refreshing</b> without hiding the last reading.
+          </p>
+        </div>
+
         <div class="card">
           <div class="row" style="justify-content:space-between">
             <h2 style="margin:0">Time-of-Use plan <span class="sub" id="planMeta"></span></h2>
@@ -410,7 +431,8 @@
 
         <div class="drawer-about">
           <b>About this display.</b> The dashboard polls the local server every 2 s; the server
-          holds one read-only MQTT subscription per site and never publishes. The editor writes
+          holds one read-only MQTT subscription per site and publishes only the read-only
+          realtime wake request. It never changes the plan or the controller. The editor writes
           only the plan and never switches mode or sends a charge-power value. The live feed is
           paused while the browser tab is hidden.
         </div>

@@ -64,11 +64,21 @@ def _soc(value):
     return int(round(max(0.0, min(100.0, value))))
 
 
+def _age_label(age_s):
+    if age_s is None:
+        return ""
+    if age_s < 60:
+        return f"{age_s}s"
+    minutes, seconds = divmod(age_s, 60)
+    return f"{minutes}m {seconds}s" if seconds else f"{minutes}m"
+
+
 def build_home_view(snapshot: dict | None) -> dict:
     """Build the small, stable view model consumed by ``home-view.js``."""
     snap = snapshot if isinstance(snapshot, dict) else {}
     available = bool(snap.get("available"))
-    stale = bool(snap.get("stale"))
+    waking = bool(snap.get("waking"))
+    stale = bool(snap.get("stale")) and not waking
     try:
         age_s = int(snap.get("age_s"))
     except (TypeError, ValueError):
@@ -101,7 +111,7 @@ def build_home_view(snapshot: dict | None) -> dict:
                         "soc": None, "label": "Unavailable",
                         "nominal_capacity_kwh": None, "reserve_soc": None,
                         "available_kwh": None, "hours_to_empty": None,
-                        "hours_to_full": None},
+                        "hours_to_full": None, "batt_avg_kw": None},
             "home": {"w": None, "kw": None, "state": "unavailable"},
             "flows": {
                 "solar": _flow(0),
@@ -181,10 +191,14 @@ def build_home_view(snapshot: dict | None) -> dict:
     hours_to_empty = None
     hours_to_full = None
     soc_raw = _number(snap.get("soc"))
+    average_kw = _number(snap.get("batt_avg_kw"))
     if nominal is not None and nominal > 0 and soc_raw is not None and reserve is not None:
         usable_soc = max(0.0, min(100.0, soc_raw) - reserve)
         available_kwh = max(0.0, nominal * usable_soc / 100.0)
-        batt_kw = max(0.0, batt_w / 1000.0)
+        # Use the server's ten-minute average when present; fall back to the
+        # instantaneous magnitude on the first frames of a fresh feed.
+        batt_kw = (average_kw if average_kw is not None and average_kw > 0
+                   else max(0.0, batt_w / 1000.0))
         if batt_state == "discharging" and batt_kw > 0:
             hours_to_empty = available_kwh * BATTERY_EFFICIENCY / batt_kw
         elif batt_state == "charging" and batt_kw > 0:
@@ -197,8 +211,13 @@ def build_home_view(snapshot: dict | None) -> dict:
     if hours_to_full is not None:
         hours_to_full = round(hours_to_full, 2)
 
-    if stale:
-        status = {"level": "stale", "label": f"Stale · {age_s}s" if age_s is not None
+    if waking:
+        status = {"level": "waking",
+                  "label": f"Refreshing · {_age_label(age_s)}" if age_s is not None
+                  else "Refreshing"}
+    elif stale:
+        status = {"level": "stale",
+                  "label": f"Stale · {_age_label(age_s)}" if age_s is not None
                   else "Stale"}
     else:
         status = {"level": "live", "label": "Live"}
@@ -217,7 +236,8 @@ def build_home_view(snapshot: dict | None) -> dict:
                     "reserve_soc": reserve,
                     "available_kwh": available_kwh,
                     "hours_to_empty": hours_to_empty,
-                    "hours_to_full": hours_to_full},
+                    "hours_to_full": hours_to_full,
+                    "batt_avg_kw": average_kw},
         "home": {**_power(home_w),
                  "state": "consuming" if home_w > ACTIVE_W else "idle"},
         "flows": {

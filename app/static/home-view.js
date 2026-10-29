@@ -116,30 +116,8 @@
     });
   }
 
-  /* Browser-local low-pass filter: mean absolute battery kW over the last
-     five minutes. It intentionally resets on reload and warms up as samples
-     accumulate. */
-  var BATTERY_FILTER_MS = 5 * 60 * 1000;
-  var BATTERY_EFFICIENCY = 0.95;
-  var batteryPowerSamples = [];
-
-  function batteryAverageKw(kw, available) {
-    if (!available || kw === null || kw === undefined || !isFinite(Number(kw))) {
-      return null;
-    }
-    var now = Date.now();
-    batteryPowerSamples.push({t: now, kw: Math.abs(Number(kw))});
-    while (batteryPowerSamples.length &&
-           now - batteryPowerSamples[0].t > BATTERY_FILTER_MS) {
-      batteryPowerSamples.shift();
-    }
-    if (!batteryPowerSamples.length) return null;
-    var total = 0;
-    for (var i = 0; i < batteryPowerSamples.length; i++) {
-      total += batteryPowerSamples[i].kw;
-    }
-    return total / batteryPowerSamples.length;
-  }
+  /* Battery time-to-empty/full is computed on the server from a ten-minute,
+     time-weighted average. The browser only formats it. */
 
   /* SOC accent: green above 80%, amber at 30%, red at 5%. Each band has a
      bright fill for the gauge and a dark ink for the shell outline; the
@@ -376,21 +354,16 @@
     var socOk = available && soc !== null && soc !== undefined &&
                 isFinite(Number(soc));
     var batt = view.battery || {};
-    var averageKw = batteryAverageKw(batt.kw, available);
     var etaHours = null;
     var etaLabel = "";
-    if (averageKw !== null && averageKw > 0 &&
-        isFinite(Number(batt.available_kwh))) {
-      if (batt.state === "discharging") {
-        etaHours = Number(batt.available_kwh) * BATTERY_EFFICIENCY / averageKw;
-        etaLabel = "empty";
-      } else if (batt.state === "charging" &&
-                 isFinite(Number(batt.nominal_capacity_kwh))) {
-        var deficit = Math.max(
-          0, Number(batt.nominal_capacity_kwh) - Number(batt.available_kwh));
-        etaHours = deficit / (averageKw * BATTERY_EFFICIENCY);
-        etaLabel = "full";
-      }
+    if (batt.state === "discharging" &&
+        isFinite(Number(batt.hours_to_empty))) {
+      etaHours = Number(batt.hours_to_empty);
+      etaLabel = "empty";
+    } else if (batt.state === "charging" &&
+               isFinite(Number(batt.hours_to_full))) {
+      etaHours = Number(batt.hours_to_full);
+      etaLabel = "full";
     }
     if (els.batteryHero) {
       els.batteryHero.style.setProperty("--soc", socOk ? String(Number(soc)) : "0");

@@ -18,9 +18,11 @@ the active meter band; battery text uses the page ink.</em></p>
 
 - **Live wall dashboard.** One composition around a large central battery: solar top-left,
   grid top-right and home load below. The SVG flow paths are measured from the rendered
-  cards, so the wires meet the cards at any aspect ratio. The server holds one read-only
-  MQTT subscription per site and inverter, so the inverter feed is never written to. The
-  browser polls the local server every **2 s**.
+  cards, so the wires meet the cards at any aspect ratio. The server holds one MQTT subscription
+  per site and inverter. Telemetry is read-only; the only publish is the realtime wake
+  request. The browser polls the local server every **2 s**.
+  A drawer slider selects a **5–60 s** MQTT cadence; the choice persists across sign-out and
+  account switches in its own preference cookie. Stale thresholds follow the cadence.
 - **Time-of-Use editor.** Reads the site, inverter and existing plan from your account.
   Edits seasons, weekday/weekend periods, tariffs and buy/sell prices. Periods cover the full
   day and stay contiguous.
@@ -88,6 +90,10 @@ separate Anker sessions and subscriptions. Put it behind HTTPS and run with
 - Scheduling is effectively **one-hour granularity**. The cloud accepts `:30`, but the device
   applies the previous whole hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 - The API is **private and undocumented**. Expect breakage.
+- The slowest selectable cadence is **60 s**. Above 5 s the device is asked for two frames at
+  a time, so a wake gap of up to a minute can appear between windows; the dashboard shows
+  `Refreshing` and keeps the last values. The wall panel's older 5 s build can temporarily
+  make the feed faster than the selected cadence.
 - The dashboard targets a **Skylight Calendar WebView** (Chromium 95). Other browsers are
   not a support target.
 - There is **no summary or weather strip yet**; those await a verified Anker stats source.

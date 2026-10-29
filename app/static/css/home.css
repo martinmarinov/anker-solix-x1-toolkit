@@ -263,6 +263,11 @@
   opacity: .76;
 }
 
+/* A renewal is in flight: the last values stay, but they are visibly not
+   being refreshed at the configured cadence yet. */
+.home-stage[data-status="waking"] .tile { opacity: .84; }
+.home-stage[data-status="waking"] .flow-layer { opacity: .62; }
+
 /* --------------------------------------------------------- battery hub */
 
 .battery-hero {
@@ -508,6 +513,7 @@
   box-shadow: 0 0 0 3px rgba(21, 128, 61, .14);
 }
 .status-dot.is-stale { background: var(--warn); }
+.status-dot.is-waking { background: var(--muted); }
 .status-dot.is-waiting { background: var(--muted); }
 .status-dot.is-offline { background: var(--bad); }
 

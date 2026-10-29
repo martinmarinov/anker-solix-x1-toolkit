@@ -28,7 +28,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from live import LiveFeed
+from live import (  # noqa: E402
+    DEFAULT_INTERVAL_S, INTERVAL_STEP_S, MAX_INTERVAL_S, MIN_INTERVAL_S,
+    LiveFeed, normalise_interval, stale_after_s,
+)
 from home_view import build_home_view
 from anker_client import (  # noqa: E402
     AnkerClient, AnkerError, assert_plan_only, dumps, now_stamp, plan_diff, site_id_of,
@@ -42,9 +45,25 @@ SESSION_FILE = os.path.join(STATE_DIR, "session.bin")
 KEYCHAIN_SERVICE = "anker-tou"
 KEYCHAIN_ACCOUNT = "session-key"
 COOKIE = "anker_tou_sid"
+PREF_COOKIE = "anker_tou_mqtt_s"
+PREF_MAX_AGE = 365 * 24 * 3600
 
 CONFIG = {"host": "127.0.0.1", "port": 8770, "max_charge_kw": 4.2, "persist": True,
           "secure_cookie": False}
+
+
+def interval_bounds() -> dict:
+    return {"min": MIN_INTERVAL_S, "max": MAX_INTERVAL_S,
+            "step": INTERVAL_STEP_S, "default": DEFAULT_INTERVAL_S}
+
+
+def pref_cookie_header(value) -> str:
+    """One-year display preference. Never a credential; never cleared on logout."""
+    cookie = (f"{PREF_COOKIE}={normalise_interval(value)}; HttpOnly; "
+              f"SameSite=Strict; Path=/; Max-Age={PREF_MAX_AGE}")
+    if CONFIG.get("secure_cookie"):
+        cookie += "; Secure"
+    return cookie
 
 
 def half_hour_offenders(plan: dict) -> list[str]:
@@ -375,6 +394,7 @@ def restore_session() -> None:
         "sites": sites,
         "expires": float(rec["expires"]),
         "lock": threading.Lock(),
+        "mqtt_interval_s": normalise_interval(rec.get("mqtt_interval_s")),
     }
     log(f"restored session for {rec.get('nick') or rec.get('user_id')}")
 
@@ -510,7 +530,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cache-Control", "no-store")
         for k, v in (extra or {}).items():
-            self.send_header(k, v)
+            if isinstance(v, (list, tuple)):
+                for item in v:
+                    self.send_header(k, item)
+            else:
+                self.send_header(k, v)
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
@@ -536,7 +560,7 @@ class Handler(BaseHTTPRequestHandler):
             raise AnkerError("Expected a JSON object.", kind="validation")
         return data
 
-    def cookie_sid(self) -> str | None:
+    def cookie_value(self, name: str) -> str | None:
         raw = self.headers.get("Cookie")
         if not raw:
             return None
@@ -545,8 +569,21 @@ class Handler(BaseHTTPRequestHandler):
             c.load(raw)
         except Exception:
             return None
-        m = c.get(COOKIE)
+        m = c.get(name)
         return m.value if m else None
+
+    def cookie_sid(self) -> str | None:
+        return self.cookie_value(COOKIE)
+
+    def pref_interval(self) -> int:
+        return normalise_interval(self.cookie_value(PREF_COOKIE))
+
+    def resolve_interval(self, sess: dict) -> int:
+        """Cookie wins; the persisted session is the fallback after a restart."""
+        raw = self.cookie_value(PREF_COOKIE)
+        if raw is not None:
+            return normalise_interval(raw)
+        return normalise_interval(sess.get("mqtt_interval_s"))
 
     def session(self) -> dict | None:
         sid = self.cookie_sid()
@@ -654,6 +691,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_logout()
             if u.path == "/api/plan":
                 return self.api_save_plan()
+            if u.path == "/api/live/interval":
+                return self.api_live_interval()
             self.fail(404, "Not found.")
         except AnkerError as e:
             if e.kind == "auth":
@@ -715,14 +754,17 @@ class Handler(BaseHTTPRequestHandler):
         expires = time.time() + SESSION_TTL
         if profile.get("expires_at"):
             expires = min(expires, float(profile["expires_at"]))
+        interval = self.pref_interval()
         view_sites = [self.site_view(x) for x in sites]
         with SESSIONS_LOCK:
             SESSIONS[sid] = {"client": client, "profile": profile, "sites": view_sites,
-                             "expires": expires, "lock": threading.Lock()}
+                             "expires": expires, "lock": threading.Lock(),
+                             "mqtt_interval_s": interval}
         persist_session(sid, {
             "token": client.token, "user_id": profile.get("user_id", ""),
             "nick": profile.get("nick", ""), "country": client.country,
             "base": client.base, "sites": view_sites, "expires": expires,
+            "mqtt_interval_s": interval,
         })
         LOGIN_ATTEMPTS.pop(ip, None)
         cookie = f"{COOKIE}={sid}; HttpOnly; SameSite=Strict; Path=/"
@@ -730,8 +772,11 @@ class Handler(BaseHTTPRequestHandler):
             cookie += f"; Max-Age={int(expires - time.time())}"
         if CONFIG.get("secure_cookie"):
             cookie += "; Secure"
-        self.json(200, {"ok": True, "user": profile, "sites": view_sites},
-                  extra={"Set-Cookie": cookie, "X-Session-Persisted": str(CONFIG['persist']).lower()})
+        self.json(200, {"ok": True, "user": profile, "sites": view_sites,
+                        "mqtt_interval_s": interval,
+                        "mqtt_bounds": interval_bounds()},
+                  extra={"Set-Cookie": [cookie, pref_cookie_header(interval)],
+                         "X-Session-Persisted": str(CONFIG['persist']).lower()})
 
     def site_view(self, s: dict) -> dict:
         tz = s.get("timezone") or s.get("time_zone") or s.get("tz") or ""
@@ -746,6 +791,8 @@ class Handler(BaseHTTPRequestHandler):
                 sess = SESSIONS.pop(sid, None)
             stop_live_feeds(sess)
         clear_persisted()
+        # Deliberately leave PREF_COOKIE in place: the refresh cadence is a
+        # display preference and must survive sign-out and account switches.
         self.json(200, {"ok": True}, extra={"Set-Cookie": f"{COOKIE}=; Path=/; Max-Age=0"})
 
     def api_state(self):
@@ -754,10 +801,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         first = s["sites"][0] if s["sites"] else {}
         keys = sorted(first.keys())[:14] if isinstance(first, dict) else []
+        interval = self.resolve_interval(s)
+        s["mqtt_interval_s"] = interval
         self._note = f"site_keys={keys}"
         self.json(200, {"ok": True, "user": s["profile"],
                         "sites": [self.site_view(x) for x in s["sites"]],
-                        "site_keys": keys})
+                        "site_keys": keys,
+                        "mqtt_interval_s": interval,
+                        "mqtt_bounds": interval_bounds()})
 
     def api_devices(self, q):
         s = self.require_session()
@@ -839,9 +890,12 @@ class Handler(BaseHTTPRequestHandler):
                 reserve_soc = float(sess.get("battery_reserve_soc", 5.0))
             except (TypeError, ValueError):
                 reserve_soc = 5.0
+            interval = self.resolve_interval(sess)
+            sess["mqtt_interval_s"] = interval
             live = LiveFeed(
                 sess["client"], main.get("code") or "device", chosen_sn,
-                battery_modules=battery_modules, reserve_soc=reserve_soc)
+                battery_modules=battery_modules, reserve_soc=reserve_soc,
+                interval_s=interval)
             feeds[key] = live
             live.start()
             return live, site, chosen_sn
@@ -868,9 +922,48 @@ class Handler(BaseHTTPRequestHandler):
             return self.fail(self.status_for(e), e.message, e.kind)
         snap = live.get()
         view = build_home_view(snap)
+        interval = snap.get("interval_s", live.interval_s)
         self.json(200, {"ok": True, "site": site, "sn": sn,
                         "timezone": self._site_timezone(s, site),
+                        "mqtt_interval_s": normalise_interval(
+                            s.get("mqtt_interval_s", interval)),
+                        "mqtt_bounds": interval_bounds(),
+                        "stale_after_s": snap.get(
+                            "stale_after_s", stale_after_s(interval)),
+                        "live_stats": live.stats(),
                         "live": snap, "view": view})
+
+    def api_live_interval(self):
+        s = self.require_session()
+        if not s:
+            return
+        body = self.body_json()
+        raw = body.get("interval_s")
+        if raw is None:
+            return self.fail(422, "interval_s is required.", "validation")
+        try:
+            requested = int(round(float(raw)))
+        except (TypeError, ValueError):
+            return self.fail(422, "interval_s must be a number.", "validation")
+        interval = normalise_interval(requested)
+        s["mqtt_interval_s"] = interval
+        results = []
+        feeds = s.get("live") or {}
+        if isinstance(feeds, dict):
+            for feed in list(feeds.values()):
+                results.append(feed.set_interval(interval))
+        pending = next((r.get("pending_interval_s") for r in results
+                        if r.get("pending_interval_s")), None)
+        applied = all(r.get("applied") for r in results) if results else True
+        self.json(200, {
+            "ok": True,
+            "mqtt_interval_s": interval,
+            "mqtt_bounds": interval_bounds(),
+            "stale_after_s": stale_after_s(interval),
+            "applied": applied,
+            "pending_interval_s": pending,
+            "feeds": results,
+        }, extra={"Set-Cookie": pref_cookie_header(interval)})
 
     def api_limits(self, q):
         s = self.require_session()

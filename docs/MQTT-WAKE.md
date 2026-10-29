@@ -1,7 +1,8 @@
 # What wakes the live MQTT stream
 
-**Status:** investigation (2026-10-28). Raw captures live under
-`captures/` and are **gitignored**; this page contains sanitized findings only.
+**Status:** investigation (2026-10-28); configurable 5–60 s cadence implemented
+(2026-10-29). Raw captures live under `captures/` and are **gitignored**; this
+page contains sanitized findings only.
 
 > **Correction (2026-10-28, later):** the live dashboard was broken by our own
 > exact-topic change, not by the broker. The realtime stream is
@@ -175,25 +176,84 @@ omitting `ems_second`. It is fixed in `app/live.py`, and the live endpoint retur
 
 ## Automatic wake (implemented)
 
-If no frame has arrived **12 seconds** after MQTT connects, or the latest frame
-is more than **30 seconds** old, `LiveFeed` publishes the X1 request that the app
-itself causes the cloud to send:
+The live feed publishes the X1 request that the app itself causes the cloud to
+send:
 
 ```text
 topic: cmd/anker_power/<pn>/<sn>/req
 head.cmd: 9
-data.cmdId: 4
-config: { "count": 60, "interval": 5 }
+head.client_id: "cloud"
+head.sign_code: 0
+payload: JSON string (account_id, device_sn, base64 trans)
+trans.cmdId: 4
+trans.config: { "count": <n>, "interval": <seconds> }
+qos: 1, retain: false
 ```
 
-That is 60 samples at 5 s intervals = a **5-minute** realtime window. The request
-is read-only and does not change the plan or controller mode. A **240-second
-cooldown** prevents repeated triggering; the dashboard status shows
-**“Requesting live data”** while waiting.
+The request is read-only and does not change the plan or controller mode.
+It is sent when any of these is true:
 
-Verified against the live broker with the phone app **stopped**: publishing this
-frame produced multiple `ems_second` frames within seconds. The app is no longer
-required as the trigger, though opening it remains a valid fallback.
+- no frame has arrived within **12 s** of MQTT connecting;
+- the selected window has delivered its last frame and one full interval has
+  passed since it;
+- the latest frame is older than the stale threshold.
+
+A **60 s wake timeout** keeps the last snapshot visible as `Refreshing` while
+the command is in flight. It does not blank the dashboard.
+
+### Count and interval
+
+The verified production shape is **60 frames at 5 s** (a 5-minute window).
+The confirmed shape above 5 s is a two-frame request, so the feed asks for two
+frames and renews after the second one:
+
+| Selected interval | `count` | Window |
+|---:|---:|---:|
+| 5 s | 60 | 5 min |
+| 10 s | 2 | 20 s |
+| 30 s | 2 | 60 s |
+| 60 s | 2 | 2 min |
+
+A long window above 5 s is deliberately not requested. Phase 0 on 2026-10-29
+observed:
+
+| Request | Result |
+|---|---|
+| `2 × 30 s` | 2 frames, **30.1 s** gap |
+| `2 × 60 s` | 2 frames at +40.1 s and +100.6 s, **60.4 s** gap |
+| `4 × 60 s` | a 5 s stream, not 60 s |
+| `3 × 120 s` | a 5 s stream, not 120 s |
+
+The wall panel was still running the older 5 s wake code during those tests,
+so the 5 s streams could have come from that client rather than a device
+fallback. The confirmed result is the two-frame shape; do not claim a larger
+window until it is tested with the wall panel quiet. A second wake while a
+window is active is queued or ignored, so a slider change is applied at the
+next window boundary rather than published mid-window.
+
+### Stale and renewal
+
+- `stale_after = max(30, round(1.5 × interval) + 5)`:
+  5 s → 30 s, 30 s → 50 s, 60 s → 95 s.
+- Renewal is measured from the **last frame**, not from the wake publish:
+  the next request is due one interval after the last frame of the window.
+- Cooldown: `max(30, interval)` seconds between wake publishes.
+- While a wake is in flight, `waking` keeps the values and the UI shows
+  `Refreshing · Ns` instead of `Stale`. A real frame clears it immediately.
+- Timing is intentionally tolerant: ±5 s at the larger intervals is acceptable.
+
+### Race with the wall panel
+
+The Skylight may still run the old 5 s wake code and occasionally publish its
+own `60 × 5` request. When it does, frames arrive faster than the selected
+interval. The feed treats them as live data and does **not** publish its own
+wake. The selected slower cadence is temporarily overridden by the panel; once
+the panel's window ends, the server's cadence resumes. No command is sent to
+stop or fight the other client.
+
+Verified against the live broker with the phone app **stopped**: publishing the
+frame produced `ems_second` frames without the app. Opening the app remains a
+valid fallback.
 
 Local Modbus was considered but **dropped**: it depends on a guaranteed local
 network path and the X1’s Modbus support is unconfirmed. The MQTT feed with the
@@ -209,6 +269,11 @@ still valid idle telemetry and remain live.
 
 `parse_frame()` rejects empty/non-dict EMS `data` objects before they can replace
 the last good snapshot. Regression tests cover empty frames and true zero values.
+
+An available snapshot with `waking` set keeps its values and renders the status
+**Refreshing · Ns**, not `Stale` and not a blank card. If the wake does not
+produce a frame within 60 s, the next read falls back to normal stale/offline
+handling and retries after the cooldown.
 
 ## mitmproxy attempt
 

@@ -621,15 +621,17 @@ The web app consumes the frame from §3.4 and exposes a normalised snapshot.
 
 The flow fields are **non-negative per edge**, which is why the UI can animate direction without inferring signs from `gp`/`bp`.
 
+> **Update 2026-10-29 — configurable cadence.** The original implementation fixed the feed at 5 s and a 30 s stale threshold. It now supports a 5–60 s drawer slider. The 5 s setting keeps the proven `60 × 5` request; above 5 s the server asks for `count=2` and renews after the second frame. Stale is `max(30, 1.5 × interval + 5)` (30/50/95 s at 5/30/60 s), and a wake in flight is shown as `Refreshing`, not `Stale`. The historical 30 s value below describes the original 5 s feed, not a universal constant. The wall panel's older 5 s build may still wake the device; its faster frames are treated as live and suppress our own wake.
+
 **Client behaviour**
 
 - one connection per signed-in session, started lazily on first read;
 - certificates fetched with the user's own token, written to a `0700` temp dir, deleted on stop;
-- subscribe-only; reconnect backoff 5 → 60 s;
-- snapshot kept in memory; `age_s` and `stale` (30 s) computed per read;
+- subscribe-only except for the read-only `cmd:9` realtime wake; reconnect backoff 5 → 60 s;
+- snapshot kept in memory; `age_s`, `waking` and `stale` computed per read from the selected cadence;
 - the browser polls the local server every 2 s; Anker sees no polling at all.
 
-**Measured upstream load:** ~12 inbound messages/minute on one socket. The Android app additionally issues a REST poll every 30 s, so this is strictly lighter.
+**Measured upstream load:** ~12 inbound messages/minute on one socket at the 5 s setting. At 60 s the confirmed two-frame shape delivers about one frame per minute. The Android app additionally issues a REST poll every 30 s, so the 5 s feed is strictly lighter; the slower settings are lighter still.
 
 ---
 
