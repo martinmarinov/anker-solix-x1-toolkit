@@ -20,7 +20,8 @@ the active meter band; battery text uses the page ink.</em></p>
   grid top-right and home load below. The SVG flow paths are measured from the rendered
   cards, so the wires meet the cards at any aspect ratio. The server holds one MQTT subscription
   per site and inverter. Telemetry is read-only; the only publish is the realtime wake
-  request. The browser polls the local server every **2 s**.
+  request. The browser checks the local server at one third of the MQTT interval,
+  with a **2 s floor** (2 s at 5 s, 20 s at 60 s).
   A drawer slider selects a **5–60 s** MQTT cadence; the choice persists across sign-out and
   account switches in its own preference cookie. Stale thresholds follow the cadence.
 - **Time-of-Use editor.** Reads the site, inverter and existing plan from your account.

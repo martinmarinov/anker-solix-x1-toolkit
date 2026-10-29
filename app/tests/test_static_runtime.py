@@ -255,6 +255,19 @@ class StaticRuntimeTests(unittest.TestCase):
         self.assertIn("function saveRefresh", js)
         self.assertIn("state.liveSeq", js)
 
+    def test_refresh_poll_is_adaptive_with_a_two_second_floor(self):
+        js = (STATIC / "app.js").read_text(encoding="utf-8")
+        self.assertIn("function pollDelayMs", js)
+        self.assertIn("Math.max(2000", js)
+        self.assertIn("interval * 1000 / 3", js)
+        self.assertIn("function applyPollInterval", js)
+        self.assertIn("applyPollInterval();", js)
+        # The old fixed two-second poll must not come back.
+        self.assertNotIn("}, 2000);", js)
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertIn("one third of the MQTT interval", html)
+        self.assertNotIn("polls this server every 2 s", html)
+
     def test_home_view_no_longer_filters_battery_locally(self):
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
         self.assertNotIn("BATTERY_FILTER_MS", js)

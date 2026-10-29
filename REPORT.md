@@ -629,7 +629,7 @@ The flow fields are **non-negative per edge**, which is why the UI can animate d
 - certificates fetched with the user's own token, written to a `0700` temp dir, deleted on stop;
 - subscribe-only except for the read-only `cmd:9` realtime wake; reconnect backoff 5 → 60 s;
 - snapshot kept in memory; `age_s`, `waking` and `stale` computed per read from the selected cadence;
-- the browser polls the local server every 2 s; Anker sees no polling at all.
+- the browser checks the local server at one third of the MQTT interval, with a 2 s floor; Anker sees no polling at all.
 
 **Measured upstream load:** ~12 inbound messages/minute on one socket at the 5 s setting. At 60 s the confirmed two-frame shape delivers about one frame per minute. The Android app additionally issues a REST poll every 30 s, so the 5 s feed is strictly lighter; the slower settings are lighter still.
 

@@ -125,9 +125,11 @@ capacity, never offered as a plan target.
 
 Transport: one MQTT connection per site+inverter, mTLS. The feed subscribes to the exact
 `dt` topics and publishes only the read-only realtime wake request; it never writes a plan
-or controller setting. The inverter publishes an `ems` frame at the selected interval while a window is
-active. The browser polls **our** `/api/live` every 2 s (and skips hidden tabs); upstream
-load is lower than the Android app at every cadence above 5 s.
+or controller setting. The inverter publishes an `ems` frame at the selected
+interval while a window is active. The browser checks **our** `/api/live` at one
+third of the MQTT interval, with a 2 s floor (2 s at 5 s, 20 s at 60 s) and
+skips hidden tabs; upstream load is lower than the Android app at every cadence
+above 5 s.
 
 The **Live refresh** slider in the drawer selects a 5–60 s cadence. The server asks for the
 proven 60-frame/5 s window at 5 s and for two frames at a time above 5 s, renewing after the

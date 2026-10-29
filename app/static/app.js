@@ -31,7 +31,7 @@ const state = {
   mqttBounds: { min: 5, max: 60, step: 5, default: 5 },
   refreshEditing: false, refreshSaving: false, refreshNote: "",
   refreshNoteKind: "", refreshTimer: null, liveSeq: 0, liveFailures: 0,
-  liveInFlight: false,
+  liveInFlight: false, pollMs: 0,
   linkDays: (() => {
     try { const v = localStorage.getItem("anker.linkDays"); return v === null ? true : v === "1"; }
     catch { return true; }
@@ -462,6 +462,28 @@ function fmtInterval(value) {
   return `${n} s`;
 }
 
+/* The browser checks the local server at one third of the MQTT cadence, with a
+   2 s floor. This cuts local requests at the slower settings without adding a
+   full interval of display latency. */
+function pollDelayMs() {
+  const interval = Number(state.mqttActive || state.mqttInterval || 5);
+  return Math.max(2000, Math.round(interval * 1000 / 3));
+}
+
+function applyPollInterval() {
+  if (!state.site) return;
+  // Only the browser-to-server HTTP timer changes here. The server's stale
+  // check and MQTT wake decision still run on every /api/live call, so slowing
+  // this timer does not disable or reset either of them.
+  const next = pollDelayMs();
+  if (state.liveTimer && next === state.pollMs) return;
+  if (state.liveTimer) clearInterval(state.liveTimer);
+  state.pollMs = next;
+  state.liveTimer = setInterval(() => {
+    if (!document.hidden) loadLive();
+  }, next);
+}
+
 function setRefreshNote(text, kind) {
   state.refreshNote = text || "";
   state.refreshNoteKind = kind || "";
@@ -492,12 +514,16 @@ function renderRefresh() {
 
   const meta = $("refreshMeta");
   if (meta) {
+    const poll = fmtInterval(Math.round(pollDelayMs() / 1000));
     if (state.mqttPending) {
       meta.textContent =
         `Every ${fmtInterval(state.mqttActive)} now · ` +
-        `${fmtInterval(state.mqttPending)} after the current refresh`;
+        `${fmtInterval(state.mqttPending)} after the current refresh · ` +
+        `browser checks every ${poll}`;
     } else {
-      meta.textContent = `Every ${fmtInterval(state.mqttActive || selected)}`;
+      meta.textContent =
+        `Every ${fmtInterval(state.mqttActive || selected)} · ` +
+        `browser checks every ${poll}`;
     }
   }
 
@@ -537,6 +563,7 @@ async function saveRefresh() {
     setRefreshNote(js.pending_interval_s
       ? "Applies after the current refresh" : "Saved", "saved");
     renderRefresh();
+    applyPollInterval();
     loadLive();
   } catch (e) {
     state.refreshSaving = false;
@@ -551,9 +578,7 @@ function startLive() {
   stopLive();
   if (!state.site) return;
   loadLive();
-  state.liveTimer = setInterval(() => {
-    if (!document.hidden) loadLive();
-  }, 2000);
+  applyPollInterval();
 }
 
 function stopLive() {
@@ -561,6 +586,7 @@ function stopLive() {
   state.liveSeq += 1; // drop any response still in flight
   state.liveFailures = 0;
   state.liveInFlight = false;
+  state.pollMs = 0;
 }
 
 async function loadLive() {
@@ -590,6 +616,7 @@ async function loadLive() {
       state.mqttPending = pending || null;
       renderRefresh();
     }
+    applyPollInterval();
     if (js.view) HomeView.render(js.view);
   } catch (e) {
     if (seq !== state.liveSeq) return;
@@ -605,7 +632,10 @@ async function loadLive() {
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && state.site && !$("appView").classList.contains("hide")) loadLive();
+  if (!document.hidden && state.site && !$("appView").classList.contains("hide")) {
+    loadLive();
+    applyPollInterval();
+  }
 });
 
 if ($("refreshRange")) {

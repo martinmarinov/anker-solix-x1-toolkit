@@ -314,8 +314,9 @@
           <div id="refreshStatus" class="refresh-status small" role="status"
                aria-live="polite"></div>
           <p class="small muted refresh-help">
-            The browser still polls this server every 2 s. Anker MQTT is re-requested
-            at this cadence; a cold wake can take up to a minute and shows
+            The browser checks this server at one third of the MQTT interval, with a
+            2 s floor (2 s at 5 s, 20 s at 60 s). Anker MQTT is re-requested at the
+            selected cadence; a cold wake can take up to a minute and shows
             <b>Refreshing</b> without hiding the last reading.
           </p>
         </div>
@@ -430,9 +431,9 @@
         </div>
 
         <div class="drawer-about">
-          <b>About this display.</b> The dashboard polls the local server every 2 s; the server
-          holds one read-only MQTT subscription per site and publishes only the read-only
-          realtime wake request. It never changes the plan or the controller. The editor writes
+          <b>About this display.</b> The dashboard polls the local server adaptively
+          (2–20 s); the server holds one read-only MQTT subscription per site and publishes
+          only the read-only realtime wake request. It never changes the plan or the controller. The editor writes
           only the plan and never switches mode or sends a charge-power value. The live feed is
           paused while the browser tab is hidden.
         </div>
