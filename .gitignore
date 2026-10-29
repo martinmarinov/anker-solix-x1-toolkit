@@ -6,6 +6,9 @@ so/
 *.apk
 *.jks
 
+# local-only runbooks, credentials and deployment notes
+private/
+
 # python
 __pycache__/
 *.pyc

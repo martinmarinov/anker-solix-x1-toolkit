@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#07131f">
+<meta name="theme-color" content="#f4efe4">
 <title>Anker X1 — Live</title>
 <link rel="stylesheet" href="/static/css/base.css">
 <link rel="stylesheet" href="/static/css/home.css">
@@ -71,47 +71,36 @@
     <div class="scene" aria-hidden="true">
       <svg class="scene-bg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
         <defs>
+          <linearGradient id="skyDay" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#eaf5fb"/>
+            <stop offset=".58" stop-color="#f7f2e6"/>
+            <stop offset="1" stop-color="#f2e9d7"/>
+          </linearGradient>
           <linearGradient id="hillFar" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#0b2130"/>
-            <stop offset="1" stop-color="#07141f"/>
+            <stop offset="0" stop-color="#dbe8d3"/>
+            <stop offset="1" stop-color="#eee9db"/>
           </linearGradient>
           <linearGradient id="hillNear" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#0d2834"/>
-            <stop offset="1" stop-color="#06121b"/>
+            <stop offset="0" stop-color="#cfe0c0"/>
+            <stop offset="1" stop-color="#e9e1cd"/>
           </linearGradient>
-          <radialGradient id="skyGlow" cx=".5" cy=".42" r=".55">
-            <stop offset="0" stop-color="#1d5878" stop-opacity=".20"/>
-            <stop offset="1" stop-color="#1d5878" stop-opacity="0"/>
+          <radialGradient id="sunGlow" cx=".5" cy=".5" r=".5">
+            <stop offset="0" stop-color="#fde68a" stop-opacity=".58"/>
+            <stop offset=".55" stop-color="#fde68a" stop-opacity=".20"/>
+            <stop offset="1" stop-color="#fde68a" stop-opacity="0"/>
           </radialGradient>
         </defs>
-        <rect width="1600" height="900" fill="url(#skyGlow)"/>
-        <g fill="#cfe8ff">
-          <circle cx="130" cy="120" r="1.2" opacity=".32"/>
-          <circle cx="245" cy="78" r="1.6" opacity=".42"/>
-          <circle cx="390" cy="145" r="1.1" opacity=".26"/>
-          <circle cx="520" cy="92" r="1.4" opacity=".36"/>
-          <circle cx="690" cy="64" r="1.2" opacity=".28"/>
-          <circle cx="815" cy="120" r="1.5" opacity=".40"/>
-          <circle cx="955" cy="80" r="1.1" opacity=".24"/>
-          <circle cx="1110" cy="145" r="1.5" opacity=".34"/>
-          <circle cx="1260" cy="92" r="1.2" opacity=".28"/>
-          <circle cx="1415" cy="130" r="1.5" opacity=".38"/>
-          <circle cx="1510" cy="74" r="1.1" opacity=".26"/>
-          <circle cx="330" cy="210" r="1" opacity=".20"/>
-          <circle cx="1050" cy="215" r="1" opacity=".18"/>
-          <circle cx="1235" cy="250" r="1.2" opacity=".22"/>
+        <rect width="1600" height="900" fill="url(#skyDay)"/>
+        <circle cx="800" cy="140" r="240" fill="url(#sunGlow)"/>
+        <circle cx="800" cy="140" r="54" fill="#f8d37c" opacity=".50"/>
+        <g fill="#ffffff" opacity=".58">
+          <path d="M148 338c-30 0-52-19-52-43 0-25 23-44 52-44 5-27 30-47 60-47 33 0 61 23 67 54 27 2 48 20 48 44 0 24-21 36-47 36H148Z"/>
+          <path d="M1378 388c-27 0-47-17-47-38 0-22 20-39 47-39 4-24 27-42 54-42 30 0 55 21 60 48 24 2 43 18 43 39 0 21-19 32-42 32h-115Z"/>
         </g>
-        <path d="M0 615 C 210 500 390 520 575 585 C 790 660 930 515 1130 535 C 1310 552 1460 620 1600 596 L 1600 900 L 0 900 Z"
-              fill="url(#hillFar)" opacity=".85"/>
-        <path d="M0 700 C 250 610 430 640 640 680 C 870 724 1010 610 1200 630 C 1390 650 1510 690 1600 676 L 1600 900 L 0 900 Z"
+        <path d="M0 640 C 220 520 410 540 590 600 C 800 670 950 530 1150 548 C 1330 564 1480 630 1600 606 L 1600 900 L 0 900 Z"
+              fill="url(#hillFar)" opacity=".86"/>
+        <path d="M0 730 C 260 636 445 664 650 700 C 880 740 1020 630 1210 650 C 1400 670 1515 704 1600 692 L 1600 900 L 0 900 Z"
               fill="url(#hillNear)" opacity=".92"/>
-        <g class="scene-pylon" fill="none" stroke="#173a4b" stroke-width="2.2"
-           opacity=".48" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M1277 694 L1305 420 L1333 694 M1264 520 H1346 M1271 592 H1339 M1292 470 H1318"/>
-          <path d="M1305 420 L1298 382 H1312 Z"/>
-          <path d="M1277 548 L1333 634 M1333 548 L1277 634"/>
-          <path d="M1255 548 H1277 M1333 548 H1355 M1262 634 H1277 M1333 634 H1348"/>
-        </g>
       </svg>
       <div class="scene-glow"></div>
       <img id="houseImg" class="house" src="/static/assets/house.svg"
@@ -122,15 +111,15 @@
       <defs>
         <marker id="flow-arrow-solar" viewBox="0 0 12 12" refX="10" refY="6"
                 markerWidth="5" markerHeight="5" orient="auto" markerUnits="strokeWidth">
-          <path d="M1 1 L11 6 L1 11 Z" fill="#f5b82e"/>
+          <path d="M1 1 L11 6 L1 11 Z" fill="#a16207"/>
         </marker>
         <marker id="flow-arrow-grid" viewBox="0 0 12 12" refX="10" refY="6"
                 markerWidth="5" markerHeight="5" orient="auto" markerUnits="strokeWidth">
-          <path d="M1 1 L11 6 L1 11 Z" fill="#4aa8ff"/>
+          <path d="M1 1 L11 6 L1 11 Z" fill="#1e40af"/>
         </marker>
         <marker id="flow-arrow-home" viewBox="0 0 12 12" refX="10" refY="6"
                 markerWidth="5" markerHeight="5" orient="auto" markerUnits="strokeWidth">
-          <path d="M1 1 L11 6 L1 11 Z" fill="#ff8a3d"/>
+          <path d="M1 1 L11 6 L1 11 Z" fill="#c2410c"/>
         </marker>
       </defs>
       <g class="flow-group" data-flow="solar">
@@ -232,7 +221,7 @@
                   stroke-linecap="round" stroke-linejoin="round"/>
             <path class="home__body" d="M13 27v30h38V27" fill="currentColor" stroke="currentColor"
                   stroke-width="4" stroke-linejoin="round"/>
-            <rect class="home__window" x="27" y="38" width="10" height="19" rx="1.5" fill="#07131f"/>
+            <rect class="home__window" x="27" y="38" width="10" height="19" rx="1.5" fill="#fffdf8"/>
           </svg>
         </div>
         <div class="tile-body">

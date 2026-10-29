@@ -1,10 +1,10 @@
-/* Plan editor sheet: same dark language as the wall dashboard. */
+/* Plan editor sheet: same daylight language as the wall dashboard. */
 
 .drawer-backdrop {
   position: fixed;
   inset: 0;
   z-index: 40;
-  background: rgba(2, 8, 14, .58);
+  background: rgba(23, 37, 47, .34);
   backdrop-filter: blur(3px);
 }
 .drawer-backdrop[hidden] { display: none; }
@@ -20,10 +20,10 @@
   flex-direction: column;
   color: var(--ink);
   background:
-    radial-gradient(700px 420px at 100% 0%, rgba(23, 58, 82, .28), transparent 65%),
-    linear-gradient(180deg, #0b1a29, #07131f);
-  border-left: 1px solid rgba(148, 163, 184, .26);
-  box-shadow: -24px 0 80px rgba(0, 0, 0, .52);
+    radial-gradient(700px 420px at 100% 0%, rgba(255, 224, 150, .22), transparent 65%),
+    linear-gradient(180deg, #fffdf8, #f5efe2);
+  border-left: 1px solid #ded6c7;
+  box-shadow: -24px 0 80px rgba(69, 56, 36, .20);
 }
 .drawer[hidden] { display: none; }
 .drawer:focus { outline: none; }
@@ -35,7 +35,7 @@ body.drawer-open { overflow: hidden; }
   gap: 14px;
   padding: 18px 22px 16px;
   border-bottom: 1px solid var(--line);
-  background: rgba(6, 17, 28, .72);
+  background: rgba(250, 246, 237, .96);
 }
 .drawer-head h1 {
   margin: 0;
@@ -57,10 +57,10 @@ body.drawer-open { overflow: hidden; }
   padding: 0;
   border-radius: 10px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, .035);
+  background: #fffdf8;
   color: var(--text-soft);
 }
-.icon-btn:hover { background: rgba(255, 255, 255, .08); }
+.icon-btn:hover { background: #f7f1e5; border-color: var(--line-strong); }
 .icon-btn svg { width: 18px; height: 18px; }
 
 .drawer-scroll {
@@ -68,7 +68,7 @@ body.drawer-open { overflow: hidden; }
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 16px 20px 28px;
-  scrollbar-color: #2a4056 transparent;
+  scrollbar-color: #c9c0b0 transparent;
 }
 
 .drawer .grid {
@@ -79,10 +79,11 @@ body.drawer-open { overflow: hidden; }
 .drawer .grid > * { min-width: 0; }
 
 .drawer .card {
-  background: linear-gradient(150deg, rgba(17, 33, 51, .96), rgba(8, 21, 34, .96));
-  border: 1px solid var(--line);
+  background: linear-gradient(150deg, #fffdf8, #fdf8ee);
+  border: 1px solid #e3dbcd;
   border-radius: 14px;
   padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(69, 56, 36, .04);
 }
 .drawer .card h2 {
   font-size: 15px;
@@ -103,8 +104,8 @@ body.drawer-open { overflow: hidden; }
 
 .drawer .tabs {
   display: inline-flex;
-  background: #06111d;
-  border: 1px solid var(--line);
+  background: #f1eadc;
+  border: 1px solid #e1d8c9;
   border-radius: 10px;
   padding: 3px;
   gap: 2px;
@@ -119,9 +120,9 @@ body.drawer-open { overflow: hidden; }
   font-size: 13px;
 }
 .drawer .tabs button.on {
-  background: #1b344c;
+  background: #fffdf8;
   color: var(--ink);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+  box-shadow: 0 1px 3px rgba(69, 56, 36, .14);
 }
 
 .periods-wrap {
@@ -148,7 +149,7 @@ table.periods th {
 }
 table.periods td {
   padding: 7px 6px;
-  border-top: 1px solid rgba(148, 163, 184, .12);
+  border-top: 1px solid #e6ded1;
 }
 .timeFixed {
   display: inline-block;
@@ -160,15 +161,15 @@ table.periods td {
   border: 1px solid transparent;
 }
 .dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: 0 0 auto; }
-.t-peak { background: #ef4444; }
-.t-mid { background: #f59e0b; }
-.t-off { background: #38bdf8; }
-.t-valley { background: #10b981; }
+.t-peak { background: #dc2626; }
+.t-mid { background: #d97706; }
+.t-off { background: #0284c7; }
+.t-valley { background: #16a34a; }
 .price { width: 104px; }
 .time { width: 98px; }
 .type { width: 142px; }
 .drawer .price, .drawer .time, .drawer .type {
-  background: #071522;
+  background: #fffdf8;
   border-color: var(--line-strong);
   color: var(--ink);
 }
@@ -180,13 +181,13 @@ table.periods td {
   margin-top: 12px;
   border-radius: 6px;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid #e1d8c9;
 }
-.timeline i { height: 26px; display: block; background: #12263a; }
-.timeline i.tl-peak { background: #ef4444; }
-.timeline i.tl-mid { background: #f59e0b; }
-.timeline i.tl-off { background: #38bdf8; }
-.timeline i.tl-valley { background: #10b981; }
+.timeline i { height: 26px; display: block; background: #efe8da; }
+.timeline i.tl-peak { background: #dc2626; }
+.timeline i.tl-mid { background: #d97706; }
+.timeline i.tl-off { background: #0284c7; }
+.timeline i.tl-valley { background: #16a34a; }
 .lab {
   display: flex;
   justify-content: space-between;
@@ -197,7 +198,7 @@ table.periods td {
 }
 
 .season { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; }
-.season + .season { border-top: 1px solid rgba(148, 163, 184, .12); }
+.season + .season { border-top: 1px solid #e6ded1; }
 .season .ghost { color: var(--text-soft); }
 .season select { width: auto; }
 
@@ -213,7 +214,7 @@ table.periods td {
 .linkDays input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
 
 .drawer input[type="number"], .drawer input[type="text"], .drawer input[type="email"] {
-  background: #071522;
+  background: #fffdf8;
   border-color: var(--line-strong);
   color: var(--ink);
 }
@@ -222,12 +223,12 @@ table.periods td {
 .drawer details.card summary:hover { color: var(--ink); }
 
 .drawer .result {
-  background: #040c15;
+  background: #f7f2e7;
   border: 1px solid var(--line);
-  color: #d7e3f4;
+  color: #33424c;
 }
 
-.drawer .diff { background: #040c15; }
+.drawer .diff { background: #f7f2e7; }
 
 .drawer .banner { color: var(--text-soft); }
 
@@ -236,7 +237,7 @@ table.periods td {
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, .025);
+  background: rgba(122, 108, 88, .05);
   color: var(--muted);
   font-size: 12px;
   line-height: 1.55;
@@ -251,15 +252,15 @@ table.periods td {
   flex-wrap: wrap;
   padding: 12px 20px;
   border-top: 1px solid var(--line);
-  background: rgba(6, 17, 28, .9);
+  background: rgba(250, 246, 237, .92);
 }
 .drawer-foot .spacer { flex: 1 1 auto; }
 
 .drawer-note {
   font-size: 12.5px;
   color: var(--muted);
-  background: rgba(56, 189, 248, .06);
-  border: 1px solid rgba(56, 189, 248, .14);
+  background: #e8f4f9;
+  border: 1px solid #c9e4ee;
   border-radius: 9px;
   padding: 10px 12px;
   margin-top: 14px;

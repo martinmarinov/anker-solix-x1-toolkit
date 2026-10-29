@@ -141,12 +141,14 @@
     return total / batteryPowerSamples.length;
   }
 
-  /* SOC accent: green above 80%, amber at 30%, red at 5%. Smoothstep
-     blends the two spans so the colour moves with the state of charge. */
-  var BATT_GREEN = [46, 224, 122];
-  var BATT_AMBER = [251, 191, 36];
-  var BATT_RED = [248, 113, 113];
-  var BATT_GRAY = [143, 163, 184];
+  /* SOC accent: green above 80%, amber at 30%, red at 5%. Each band has a
+     bright fill for the gauge and a dark ink for the shell outline; the
+     readout itself stays on the page ink so it is legible over both halves
+     of the shell. Smoothstep blends the two spans with the charge. */
+  var BATT_GREEN = { fill: [52, 211, 153], ink: [20, 83, 45] };
+  var BATT_AMBER = { fill: [251, 191, 36], ink: [120, 53, 15] };
+  var BATT_RED = { fill: [248, 113, 113], ink: [127, 29, 29] };
+  var BATT_GRAY = { fill: [148, 163, 184], ink: [71, 85, 105] };
 
   function mixColor(a, b, t) {
     return [
@@ -161,25 +163,40 @@
     return t * t * (3 - 2 * t);
   }
 
-  function batteryColor(soc) {
+  function mixTone(a, b, t) {
+    return {
+      fill: mixColor(a.fill, b.fill, t),
+      ink: mixColor(a.ink, b.ink, t)
+    };
+  }
+
+  function batteryTone(soc) {
     var value = Number(soc);
     if (!isFinite(value)) return null;
     value = Math.max(0, Math.min(100, value));
     if (value >= 80) return BATT_GREEN;
     if (value >= 30) {
-      return mixColor(BATT_GREEN, BATT_AMBER, smoothstep((80 - value) / 50));
+      return mixTone(BATT_GREEN, BATT_AMBER, smoothstep((80 - value) / 50));
     }
     if (value >= 5) {
-      return mixColor(BATT_AMBER, BATT_RED, smoothstep((30 - value) / 25));
+      return mixTone(BATT_AMBER, BATT_RED, smoothstep((30 - value) / 25));
     }
     return BATT_RED;
   }
 
   function applyBatteryColor(socOk, soc) {
     if (!els.batteryHero) return;
-    var rgb = socOk ? batteryColor(soc) : null;
-    rgb = rgb || BATT_GRAY;
-    els.batteryHero.style.setProperty("--battery-rgb", rgb.join(", "));
+    var tone = socOk ? batteryTone(soc) : null;
+    tone = tone || BATT_GRAY;
+    els.batteryHero.style.setProperty("--battery-rgb", tone.fill.join(", "));
+    els.batteryHero.style.setProperty("--battery-ink-rgb", tone.ink.join(", "));
+  }
+
+  /* The bar band also drives the card accent: value, unit, icon, top rule
+     and tinted shadow all read the same green/amber/red/blue token. */
+  function setCardLevel(el, level) {
+    var tile = el && el.closest ? el.closest(".tile") : null;
+    if (tile) tile.dataset.level = level || "off";
   }
 
   function renderHomeBars(view, available) {
@@ -206,6 +223,7 @@
     }
 
     el.dataset.level = band;
+    setCardLevel(el, band);
     el.setAttribute("aria-valuenow", String(level));
     el.setAttribute("aria-valuetext", text);
     var bars = el.children;
@@ -236,7 +254,9 @@
       }
     }
 
-    el.dataset.level = level ? "green" : "off";
+    var band = level ? "green" : "off";
+    el.dataset.level = band;
+    setCardLevel(el, band);
     el.setAttribute("aria-valuenow", String(level));
     el.setAttribute("aria-valuetext", text);
     var bars = el.children;
@@ -282,6 +302,7 @@
     }
 
     el.dataset.level = band;
+    setCardLevel(el, band);
     el.setAttribute("aria-valuenow", String(level));
     el.setAttribute("aria-valuetext", text);
     var bars = el.children;
@@ -535,6 +556,8 @@
     var solarSrc = { x: solarTile.right, y: solarTile.top + solarTile.height / 2 };
     var gridSrc = { x: gridTile.left + gridTile.width * 0.32, y: gridTile.bottom };
     var homeTarget = { x: homeTile.right, y: homeTile.top + homeTile.height / 2 };
+    var portrait = !!(window.matchMedia &&
+      window.matchMedia("(max-aspect-ratio: 0.95)").matches);
 
     var view = currentView || {};
     var flows = view.flows || {};
@@ -552,7 +575,28 @@
     }
 
     var homeActive = !!available && view.home && view.home.state === "consuming";
-    setFlow("home", pathV(batteryLeft.x, batteryLeft.y, homeTarget.x, homeTarget.y), homeActive);
+    if (portrait) {
+      /* In portrait Home is centred under the battery. Run the wire down the
+         battery's left shoulder, then across below the battery caption and
+         into the top edge of the card. A straight drop would cross the SOC
+         summary text. */
+      var summary = $("batterySummary");
+      var capLeft = summary ? rectOf(summary).left : battery.left;
+      var runX = Math.max(battery.left + 2,
+        Math.min(battery.left + battery.width * 0.12, capLeft - u));
+      var entryX = homeTile.left + homeTile.width / 2;
+      var bendY = Math.max(battery.bottom + u * 3, homeTile.top - u * 6);
+      var corner = u * 1.6;
+      setFlow("home", "M" + runX + " " + battery.bottom +
+        " L" + runX + " " + (bendY - corner) +
+        " Q" + runX + " " + bendY + " " + (runX + corner) + " " + bendY +
+        " L" + (entryX - corner) + " " + bendY +
+        " Q" + entryX + " " + bendY + " " + entryX + " " + (bendY + corner) +
+        " L" + entryX + " " + homeTile.top, homeActive);
+    } else {
+      setFlow("home", pathV(batteryLeft.x, batteryLeft.y,
+        homeTarget.x, homeTarget.y), homeActive);
+    }
   }
 
   window.HomeView = {

@@ -1,7 +1,7 @@
 # Anker SOLIX X1 — wall dashboard + Time-of-Use editor
 
-A self-hosted web app built for a small landscape display on a wall. The Home view is a
-full-screen, dark live-energy dashboard; the **Plan editor** is an always-visible burger
+A self-hosted web app built for a small wall display, including the Skylight pane. The Home view is a
+full-screen, daylight live-energy dashboard; the **Plan editor** is an always-visible burger
 button away. It talks to Anker's cloud with **your own account**; nothing about a particular
 user, site or device is baked in.
 
@@ -57,37 +57,46 @@ capacity, never offered as a plan target.
 
 ## 3. Wall dashboard (Home)
 
-- **Purpose-built for distance.** One landscape composition built around a large central
-  battery: Solar top-left, Grid top-right and Home Load bottom-left, with the vector house
-  behind the battery and colour-coded flow paths connecting the physical elements.
+- **Purpose-built for distance.** One composition built around a large central battery:
+  Solar top-left, Grid top-right and Home Load below it (bottom-left in landscape, centred
+  in portrait), with the vector house behind the battery and colour-coded flow paths
+  connecting the physical elements.
 - **Elastic scaling, no build step.** The stage uses one `--u` token
   (`clamp(4.6px, min(0.598vw, 1.063vh), 14px)`), refined in JS on resize. Every card, icon,
   gap and flow stroke is a multiple of it. No `transform: scale()` for the page, so text
   stays crisp. Reference composition is 1672×941; 4:3 and ultrawide are graceful. Solar,
-  Grid and Home share one width token for symmetry. Narrow screens (≤700 px) stack all
-  three full-width; wider tall/square windows keep the around-the-house composition and
-  balance it vertically.
+  Grid and Home share one width token for symmetry. Portrait aspect ratios (≤0.95) keep the
+  same around-the-house composition with 46%-wide cards, a 28%-wide battery and Home centred
+  at the bottom; no stacked fallback. The three cards share one height as well as one width,
+  giving the cluster a level top and bottom. Portrait card/battery type and card icons use a
+  1.5× scale for readability; phones at 599px or narrower keep the compact 1× sizing.
 - **Vector-only artwork.** `static/assets/house.svg` is hand-built (walls, roof, solar array,
-  windows, trees, lawn, ground). Icons are inline SVG; hills, stars and glow are inline
-  SVG/CSS. No external images, fonts, CDNs or runtime AI calls.
+  windows, trees, lawn, ground). Icons are inline SVG; the sky, sun and hills are inline
+  SVG/CSS. No external images, fonts, CDNs or runtime AI calls; the UI uses the browser's
+  system sans, which resolves to Roboto in the Skylight WebView.
 - **Live state in one place.** The server normalises raw MQTT into a small `view`:
   `importing/exporting/idle`, `charging/discharging/idle`, clamped SOC, per-edge flow
   activity and `live/stale/waiting/offline`. The browser renders values and sets
   `data-available`, `data-stale`, `data-solar`, `data-grid`, `data-battery`, `data-status`.
   The battery accent interpolates with SOC: green above 80%, blending through amber at 30%,
-  then red at 5% (smoothstep between stops). The battery shimmer uses `data-battery`: it
-  travels down while discharging and up while charging. That is the only looping motion;
-  fill-height, colours and flow-opacity changes are short transitions. It stops when
-  idle/unavailable and is disabled by `prefers-reduced-motion`.
+  then red at 5% (smoothstep between stops). Each tone pairs a bright fill with a dark ink
+  for the shell outline; the SOC, power and remaining-charge text all use the page ink, so
+  they remain legible on the pale headroom and on the fill at every charge level. The battery shimmer uses
+  `data-battery`: it travels down while discharging and up while charging. That is the only
+  looping motion; fill-height, colours and flow-opacity changes are short transitions. It
+  stops when idle/unavailable and is disabled by `prefers-reduced-motion`.
 - **Flows are measured, not guessed.** `home-view.js` measures the solar/grid/home cards and
   the battery shell, then redraws the SVG paths on resize/orientation change. Solar runs
   card → battery; grid runs card ↔ battery (import/export); home runs battery → card when the
   house is consuming. Active paths also carry a slow dotted "walking wire" in the same colour
   as the arrow, moving toward the arrowhead. The battery is the visual hub; charge/discharge
-  is shown by its fill and glow. The house is background artwork, not a flow node.
+  is shown by its fill and the summary line. The house is background artwork, not a flow node.
+- **Cards mirror their meter band.** The active bar colour also drives that card's kW
+  value, unit, icon, top rule and tinted drop shadow. A green bar never sits under an
+  orange value; the label stays ink and an unavailable card falls back to slate.
 - **Home Load meter.** Five segments sit under the Home Load value. Below 2 kW one green
   bar; below 3 kW two green; below 4 kW three amber; below 5 kW four amber; 5 kW and above
-  five red. It reads `view.home.w`, stays dark until a real home reading exists, and its
+  five red. It reads `view.home.w`, stays unlit until a real home reading exists, and its
   accessible meter value reports the bar count plus the kW reading.
 - **Solar meter and sky icon.** Five green segments sit under Solar. Any output above zero
   lights one; 2.8 kW and above lights all five, with the intervening bars linear at 0.7 kW
@@ -95,7 +104,7 @@ capacity, never offered as a plan target.
   solar is not generating. The hour comes from the site timezone.
 - **Grid meter.** Five segments sit under Grid. Export uses blue at every level:
   linear from 1 bar above 50 W to 5 bars at 2.8 kW. Import is 1–2 green below 1/2 kW,
-  3–4 amber below 5/10 kW, and 5 red at 10 kW or above. Both directions stay dark below
+  3–4 amber below 5/10 kW, and 5 red at 10 kW or above. Both directions stay unlit below
   50 W so inverter ramp-up/down does not flicker the meter.
 - **Stale is quiet but visible.** Cards and battery dim, values keep their last reading, and
   a compact status line under the battery caption becomes amber `Stale · Ns` after 30 s
@@ -120,7 +129,7 @@ skips hidden tabs); upstream load is strictly lower than the Android app.
 
 ## 4. Plan editor (burger drawer)
 
-After sign-in the dashboard paints immediately. The **Plan** view is a full-height dark sheet
+After sign-in the dashboard paints immediately. The **Plan** view is a full-height light sheet
 opened by the always-visible top-left burger (or `#plan`), with a backdrop, focus trap,
 Escape/backdrop close and focus restoration. The live feed keeps running while it is open.
 
