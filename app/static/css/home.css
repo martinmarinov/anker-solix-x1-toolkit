@@ -662,8 +662,10 @@
 /* --------------------------------------------------- portrait / small */
 
 /* Keep the same around-the-house composition when the viewport turns
-   portrait; only the proportions change. No stacked fallback. */
-@media (max-aspect-ratio: 0.95) {
+   portrait; only the proportions change. No stacked fallback.
+   Use the ratio form: Chromium 95 in the Skylight WebView does not match
+   decimal aspect-ratio queries such as `0.95`, but does match `95/100`. */
+@media (max-aspect-ratio: 95/100) {
   .home-stage {
     --type-scale: 1.5;
   }
@@ -710,7 +712,7 @@
   }
 }
 
-@media (max-aspect-ratio: 0.95) and (max-width: 599px) {
+@media (max-aspect-ratio: 95/100) and (max-width: 599px) {
   .home-stage {
     --type-scale: 1;
   }

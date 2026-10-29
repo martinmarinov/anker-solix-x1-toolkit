@@ -556,8 +556,10 @@
     var solarSrc = { x: solarTile.right, y: solarTile.top + solarTile.height / 2 };
     var gridSrc = { x: gridTile.left + gridTile.width * 0.32, y: gridTile.bottom };
     var homeTarget = { x: homeTile.right, y: homeTile.top + homeTile.height / 2 };
+    /* Ratio form, not `0.95`: the Skylight WebView (Chromium 95) does not
+       match decimal aspect-ratio queries. */
     var portrait = !!(window.matchMedia &&
-      window.matchMedia("(max-aspect-ratio: 0.95)").matches);
+      window.matchMedia("(max-aspect-ratio: 95/100)").matches);
 
     var view = currentView || {};
     var flows = view.flows || {};

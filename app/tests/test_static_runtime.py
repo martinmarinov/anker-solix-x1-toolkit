@@ -73,7 +73,7 @@ class StaticRuntimeTests(unittest.TestCase):
         css = (STATIC / "css/home.css").read_text(encoding="utf-8")
         self.assertIn('--tile-w:', css)
         self.assertEqual(css.count('width: var(--tile-w)'), 3)
-        self.assertIn('@media (max-aspect-ratio: 0.95)', css)
+        self.assertIn('@media (max-aspect-ratio: 95/100)', css)
         self.assertIn('--tile-w: 46%;', css)
         self.assertIn('bottom: .5%;', css)
         self.assertIn('--card-h:', css)
@@ -226,6 +226,8 @@ class StaticRuntimeTests(unittest.TestCase):
 
     def test_portrait_home_wire_routes_around_the_caption(self):
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
+        self.assertIn('matchMedia("(max-aspect-ratio: 95/100)")', js)
+        self.assertNotIn('max-aspect-ratio: 0.95', js)
         self.assertIn("var capLeft = summary ? rectOf(summary).left", js)
         self.assertIn("Math.min(battery.left + battery.width * 0.12, capLeft - u)", js)
         self.assertIn("bendY = Math.max(battery.bottom + u * 3", js)

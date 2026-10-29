@@ -70,6 +70,8 @@ capacity, never offered as a plan target.
   at the bottom; no stacked fallback. The three cards share one height as well as one width,
   giving the cluster a level top and bottom. Portrait card/battery type and card icons use a
   1.5× scale for readability; phones at 599px or narrower keep the compact 1× sizing.
+  Portrait detection uses `(max-aspect-ratio: 95/100)`: Chromium 95 in the Skylight WebView
+  does not match the decimal `0.95` form, which silently fell back to the narrow-card layout.
 - **Vector-only artwork.** `static/assets/house.svg` is hand-built (walls, roof, solar array,
   windows, trees, lawn, ground). Icons are inline SVG; the sky, sun and hills are inline
   SVG/CSS. No external images, fonts, CDNs or runtime AI calls; the UI uses the browser's
