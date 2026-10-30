@@ -360,15 +360,18 @@
 
 /* --------------------------------------------------------- battery hub */
 
+/* In portrait, home-view.js measures the band between the card rows and sets
+   --battery-w/--battery-top in pixels. The percentage/vw fallbacks keep the
+   static composition when scripting is unavailable. */
 .battery-hero {
   --battery-rgb: 52, 211, 153;
   --battery-ink-rgb: 20, 83, 45;
   --battery-color: rgb(var(--battery-rgb));
   position: absolute;
   left: 50%;
-  top: 25.3%;
+  top: var(--battery-top, 25.3%);
   z-index: 4;
-  width: min(14%, calc(var(--u) * 23.4));
+  width: var(--battery-w, min(14%, calc(var(--u) * 23.4)));
   transform: translateX(-50%);
   text-align: center;
   pointer-events: none;
@@ -793,8 +796,15 @@
   }
 
   .battery-hero {
-    top: 28%;
-    width: 28%;
+    --battery-w: 28vw;
+    top: var(--battery-top, 28%);
+    width: var(--battery-w);
+  }
+
+  /* Reserve two lines for the estimate so switching between a one-line "Full"
+     and a two-line clock estimate cannot resize the fitted battery. */
+  .battery-caption-value {
+    min-height: calc(2 * 1.15em);
   }
 
   .tiles {
@@ -840,6 +850,21 @@
   }
   .tiles {
     --card-h: calc(var(--u) * 19.6);
+  }
+}
+
+/* The fitted portrait shell is wider than the old fixed 28vw; scale the
+   readout with it on wide portraits. At the 28vw fallback the SOC and power
+   sizes match the previous 1.5× type. Phones keep the compact base sizes. */
+@media (min-width: 600px) and (max-aspect-ratio: 95/100) {
+  .battery-soc {
+    font-size: clamp(30px, calc(var(--battery-w) * .33), 174px);
+  }
+  .battery-power {
+    font-size: clamp(12px, calc(var(--battery-w) * .108), 54px);
+  }
+  .battery-caption-value {
+    font-size: clamp(12px, calc(var(--battery-w) * .084), 48px);
   }
 }
 

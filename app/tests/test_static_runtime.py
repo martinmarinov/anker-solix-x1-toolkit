@@ -351,12 +351,48 @@ class StaticRuntimeTests(unittest.TestCase):
 
     def test_portrait_home_wire_routes_around_the_caption(self):
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
-        self.assertIn('matchMedia("(max-aspect-ratio: 95/100)")', js)
+        self.assertIn('var PORTRAIT_QUERY = "(max-aspect-ratio: 95/100)";', js)
         self.assertNotIn('max-aspect-ratio: 0.95', js)
+        self.assertEqual(js.count("window.matchMedia(PORTRAIT_QUERY)"), 2)
         self.assertIn("var capLeft = summary ? rectOf(summary).left", js)
         self.assertIn("Math.min(battery.left + battery.width * 0.12, capLeft - u)", js)
-        self.assertIn("bendY = Math.max(battery.bottom + u * 3", js)
-        self.assertIn("homeTile.top - u * 6", js)
+        self.assertIn("bendY = Math.max(hero.bottom + u * 1.2", js)
+        self.assertIn("homeTile.top - u * 4", js)
+
+    def test_portrait_battery_fits_the_measured_gap(self):
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        self.assertIn("top: var(--battery-top, 25.3%);", css)
+        self.assertIn(
+            "width: var(--battery-w, min(14%, calc(var(--u) * 23.4)));",
+            css,
+        )
+        self.assertIn("--battery-w: 28vw;", css)
+        self.assertIn("top: var(--battery-top, 28%);", css)
+        self.assertIn("min-height: calc(2 * 1.15em);", css)
+        self.assertIn(
+            "@media (min-width: 600px) and (max-aspect-ratio: 95/100)",
+            css,
+        )
+        for ratio in (".33", ".108", ".084"):
+            self.assertIn(f"calc(var(--battery-w) * {ratio})", css)
+        js = (STATIC / "home-view.js").read_text(encoding="utf-8")
+        self.assertIn("function fitBattery", js)
+        self.assertIn("BATTERY_MAX_W = 0.44", js)
+        self.assertIn("BATTERY_MIN_W = 0.20", js)
+        self.assertIn(
+            "fitBattery(stage, u, Math.max(solarTile.bottom, gridTile.bottom),",
+            js,
+        )
+        self.assertIn("homeTile.top);", js)
+        self.assertIn("captionH = Math.max(0, hero.height - shell.height)", js)
+        self.assertIn('style.setProperty("--battery-w"', js)
+        self.assertIn('"--battery-top", Math.round', js)
+        self.assertIn('style.removeProperty("--battery-w")', js)
+        self.assertIn('style.removeProperty("--battery-top")', js)
+        # The Grid takeoff moves outside the fitted shell but stays on its card.
+        self.assertIn("battery.right + u * 1.2", js)
+        self.assertIn("gridTile.right - u * 1.5", js)
+        self.assertIn("gridTile.left + u * 1.5", js)
 
     def test_house_is_a_simple_daylight_pastel(self):
         svg = (STATIC / "assets/house.svg").read_text(encoding="utf-8")

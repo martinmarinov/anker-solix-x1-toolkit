@@ -20,6 +20,11 @@
   var layoutQueued = false;
   var currentView = null;
   var initialized = false;
+  /* Shared by CSS and JS so the fitted battery and its type override cannot
+     drift apart. The ratio form is the one Chromium 95 matches. */
+  var PORTRAIT_QUERY = "(max-aspect-ratio: 95/100)";
+  var BATTERY_MAX_W = 0.44;
+  var BATTERY_MIN_W = 0.20;
 
   function $(id) { return document.getElementById(id); }
 
@@ -581,6 +586,70 @@
     };
   }
 
+  /* Fit the battery into the measured band between the top card row and the
+     Home card. The shell keeps its 0.53 aspect; width is capped at 44% of the
+     stage. The caption/status block is measured after each width change, so a
+     two- or three-line estimate shrinks the shell instead of overlapping the
+     Home card. */
+  function fitBattery(stage, u, topEdge, bottomEdge) {
+    if (!els.batteryHero || !els.batteryShell) return;
+    var portrait = !!(window.matchMedia &&
+      window.matchMedia(PORTRAIT_QUERY).matches);
+    if (!portrait) {
+      /* Let the landscape/tall media queries own the position and width. */
+      els.batteryHero.style.removeProperty("--battery-w");
+      els.batteryHero.style.removeProperty("--battery-top");
+      return;
+    }
+    if (!stage.width || !isFinite(stage.width) || bottomEdge <= topEdge) return;
+
+    var cap = els.batteryHero.querySelector(".battery-cap");
+    var minW = stage.width * BATTERY_MIN_W;
+    var maxW = stage.width * BATTERY_MAX_W;
+    var width = maxW;
+    var aspect = 0.53;
+    var captionH = 0;
+    var capH = 0;
+    var shell = null;
+    var hero = null;
+    var usable = Math.max(0, bottomEdge - topEdge - u * 9);
+
+    /* Only ever shrink: three passes absorb the caption reflow caused by the
+       width change and settle before the position is applied. */
+    for (var pass = 0; pass < 3; pass++) {
+      els.batteryHero.style.setProperty("--battery-w", width + "px");
+      shell = rectOf(els.batteryShell);
+      hero = rectOf(els.batteryHero);
+      if (!shell || !hero || shell.height <= 0) return;
+      aspect = shell.width / shell.height;
+      if (!isFinite(aspect) || aspect <= 0) aspect = 0.53;
+      captionH = Math.max(0, hero.height - shell.height);
+      capH = cap ? Math.max(0, shell.top - rectOf(cap).top) : 0;
+      var fitW = Math.max(minW,
+        Math.min(maxW, (usable - captionH - capH) * aspect));
+      if (fitW >= width - 0.5) break;
+      width = fitW;
+    }
+
+    width = Math.round(width * 100) / 100;
+    els.batteryHero.style.setProperty("--battery-w", width + "px");
+    shell = rectOf(els.batteryShell);
+    hero = rectOf(els.batteryHero);
+    if (!shell || !hero || shell.height <= 0) return;
+    captionH = Math.max(0, hero.height - shell.height);
+    capH = cap ? Math.max(0, shell.top - rectOf(cap).top) : 0;
+    var clusterH = capH + shell.height + captionH;
+    var spare = Math.max(0, usable - clusterH);
+    var top = topEdge + u * 4 + spare / 2 + capH;
+    /* Tall type is the one thing the width cap cannot absorb. Keep the cluster
+       above the Home card; the 20% width floor is the safety stop. */
+    var maxTop = bottomEdge - u * 5 - captionH - shell.height;
+    if (top > maxTop) top = Math.max(topEdge + capH + u, maxTop);
+    els.batteryHero.style.setProperty(
+      "--battery-top", Math.round(top * 100) / 100 + "px"
+    );
+  }
+
   function pathH(x1, y1, x2, y2) {
     var dx = x2 - x1, dy = y2 - y1;
     if (Math.abs(dx) < 2 || Math.abs(dy) < 2) {
@@ -631,20 +700,32 @@
     var solarTile = rectOf(root.querySelector('[data-card="solar"]'));
     var gridTile = rectOf(root.querySelector('[data-card="grid"]'));
     var homeTile = rectOf(root.querySelector('[data-card="home"]'));
+    if (!solarTile || !gridTile || !homeTile) return;
+
+    fitBattery(stage, u, Math.max(solarTile.bottom, gridTile.bottom),
+      homeTile.top);
+
     var battery = rectOf(els.batteryShell);
-    if (!solarTile || !gridTile || !homeTile || !battery) return;
+    var hero = rectOf(els.batteryHero);
+    if (!battery || !hero) return;
 
     var gap = Math.max(4, u * 1.4);
     var batteryTop = { x: battery.left + battery.width * 0.5, y: battery.top - gap };
     var batteryRight = { x: battery.right + 2, y: battery.top + battery.height * 0.54 };
     var batteryLeft = { x: battery.left - 2, y: battery.top + battery.height * 0.95 };
     var solarSrc = { x: solarTile.right, y: solarTile.top + solarTile.height / 2 };
-    var gridSrc = { x: gridTile.left + gridTile.width * 0.32, y: gridTile.bottom };
+    /* Keep the Grid takeoff outside a wider fitted shell, but inside its own
+       card. Without this the wire disappears behind the battery. */
+    var gridAnchorX = Math.max(
+      gridTile.left + gridTile.width * 0.32,
+      battery.right + u * 1.2
+    );
+    gridAnchorX = Math.min(gridAnchorX, gridTile.right - u * 1.5);
+    gridAnchorX = Math.max(gridAnchorX, gridTile.left + u * 1.5);
+    var gridSrc = { x: gridAnchorX, y: gridTile.bottom };
     var homeTarget = { x: homeTile.right, y: homeTile.top + homeTile.height / 2 };
-    /* Ratio form, not `0.95`: the Skylight WebView (Chromium 95) does not
-       match decimal aspect-ratio queries. */
     var portrait = !!(window.matchMedia &&
-      window.matchMedia("(max-aspect-ratio: 95/100)").matches);
+      window.matchMedia(PORTRAIT_QUERY).matches);
 
     var view = currentView || {};
     var flows = view.flows || {};
@@ -672,7 +753,7 @@
       var runX = Math.max(battery.left + 2,
         Math.min(battery.left + battery.width * 0.12, capLeft - u));
       var entryX = homeTile.left + homeTile.width / 2;
-      var bendY = Math.max(battery.bottom + u * 3, homeTile.top - u * 6);
+      var bendY = Math.max(hero.bottom + u * 1.2, homeTile.top - u * 4);
       var corner = u * 1.6;
       setFlow("home", "M" + runX + " " + battery.bottom +
         " L" + runX + " " + (bendY - corner) +

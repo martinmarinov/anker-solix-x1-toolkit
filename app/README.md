@@ -74,12 +74,14 @@ capacity, never offered as a plan target.
   gap and flow stroke is a multiple of it. No `transform: scale()` for the page, so text
   stays crisp. Reference composition is 1672×941; 4:3 and ultrawide are graceful. Solar,
   Grid and Home share one width token for symmetry. Portrait aspect ratios (≤0.95) keep the
-  same around-the-house composition with 46%-wide cards, a 28%-wide battery and Home centred
-  at the bottom; no stacked fallback. The three cards share one height as well as one width,
-  giving the cluster a level top and bottom. Portrait card/battery type and card icons use a
-  1.5× scale for readability; phones at 599px or narrower keep the compact 1× sizing.
-  Portrait detection uses `(max-aspect-ratio: 95/100)`: Chromium 95 in the Skylight WebView
-  does not match the decimal `0.95` form, which silently fell back to the narrow-card layout.
+  same around-the-house composition with 46%-wide cards and Home centred at the bottom; no
+  stacked fallback. The battery is measured at runtime to fill the band between the card rows,
+  capped at 44% of the stage width, and its readout scales with that width. The three cards
+  share one height as well as one width, giving the cluster a level top and bottom. Portrait
+  card type and icons use a 1.5× scale, the fitted battery readout scales with its width, and
+  phones at 599px or narrower keep the compact 1× sizing. Portrait detection uses
+  `(max-aspect-ratio: 95/100)`: Chromium 95 in the Skylight WebView does not match the decimal
+  `0.95` form, which silently fell back to the narrow-card layout.
 - **Vector-only artwork.** `static/assets/house.svg` is hand-built (walls, roof, solar array,
   windows, trees, lawn, ground). Icons are inline SVG; the sky, sun and hills are inline
   SVG/CSS. No external images, fonts, CDNs or runtime AI calls; the UI uses the browser's
@@ -143,11 +145,12 @@ capacity, never offered as a plan target.
   bottom-corner watermark shows the window and `est. ip`/`est. cfg`/`fallback`; it is a debug
   aid and ignores clicks. The resolver is one process and one startup call, matching the app's
   single-process server.
-- **Flows are measured, not guessed.** `home-view.js` measures the solar/grid/home cards and
-  the battery shell, then redraws the SVG paths on resize/orientation change. Solar runs
-  card → battery; grid runs card ↔ battery (import/export); home runs battery → card when the
-  house is consuming. Active paths also carry a slow dotted "walking wire" in the same colour
-  as the arrow, moving toward the arrowhead. The battery is the visual hub; charge/discharge
+- **Flows are measured, not guessed.** `home-view.js` measures the solar/grid/home cards,
+  fits the battery into the portrait card gap, then redraws the SVG paths on
+  resize/orientation change. Solar runs card → battery; grid runs card ↔ battery
+  (import/export) with its takeoff moved outside the fitted shell; home runs battery → card
+  when the house is consuming. Active paths also carry a slow dotted "walking wire" in the
+  same colour as the arrow, moving toward the arrowhead. The battery is the visual hub; charge/discharge
   is shown by its fill and the summary line. The house is background artwork, not a flow node.
 - **Cards take their meter's colour.** Each card's top rule, tinted drop shadow and readout
   glow use the same fill as its lit bars: leaf green `#7acc70`, amber `#e6be4a`, blue
