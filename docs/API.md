@@ -268,13 +268,57 @@ Local server contract:
 | Method | Path | Meaning |
 |---|---|---|
 | `GET` | `/api/state` | `mqtt_interval_s` + `mqtt_bounds` alongside the session |
-| `GET` | `/api/live` | `mqtt_interval_s`, `stale_after_s`, `live_stats` (`interval_s`, `count`, `pending_interval_s`, `last_gap_s`, `waking`) |
+| `GET` | `/api/live` | `mqtt_interval_s`, `stale_after_s`, `live_stats` (`interval_s`, `count`, `pending_interval_s`, `last_gap_s`, `waking`, `last_frame_keys`, `limits_error`) and the view below |
 | `POST` | `/api/live/interval` | `{"interval_s": 5…60}`; clamps to a 5 s step, updates the session and every active feed, sets the preference cookie |
 
 The preference cookie is `anker_tou_mqtt_s` (`HttpOnly; SameSite=Strict; Path=/;
 Max-Age=31536000`, plus `Secure` with `--secure-cookies`). It is not the session
 cookie and deliberately survives sign-out and account switches. A change while
 a window is active is stored as pending and applied at the next window boundary.
+
+### Live view: battery estimate
+
+`/api/live` returns `view.battery.estimate` alongside the existing battery fields. `mode` is
+one of `unavailable`, `idle`, `discharging`, `grid`, `charging`, `solar` or `full`.
+
+```json
+{
+  "mode": "solar",
+  "rate_kw": 0.7,
+  "hours": 4.653,
+  "clock": "15:09",
+  "soc_final": null,
+  "solar_end": null,
+  "reason": "solar_curve",
+  "solar": {
+    "as_of": "10:30",
+    "remaining_kwh": 12.82,
+    "charge_kwh": 8.8,
+    "needed_kwh": 7.89,
+    "load_kw": 0.5,
+    "peak_kw": 2.377,
+    "risk_factor": 0.5,
+    "reachable": true,
+    "capped": false,
+    "charge_limit_kw": 6.0,
+    "charge_limit_source": "default_6kw"
+  }
+}
+```
+
+- `hours` is absent (`null`) in `solar` when the pack cannot reach 100 % by 18:00; `soc_final`
+  and `solar_end` are then set, and the browser shows `87% by 18:00`.
+- `clock` is computed in the site timezone. The browser keeps its local fallback for old
+  payloads.
+- `charge_limit_kw` is resolved at runtime: realtime EMS (`realtime.ems_second.<key>`) →
+  device attributes or the site power limit (`device_attrs.<key>`, `power_limits.<key>`) → `default_6kw`. `plan-save` is a temporary
+  source set immediately after a successful schedule save; the next frame or read replaces it.
+  `capped` is true only when the limit actually clips the solar surplus.
+- `batt_avg_net_kw` (signed), `load_avg_kw` and the legacy `batt_avg_kw` are in the live
+  snapshot. The averages cover ten minutes and are time-weighted.
+- `hours_to_empty` and `hours_to_full` remain as aliases for older clients.
+
+See [`SOLAR-ESTIMATE.md`](SOLAR-ESTIMATE.md) for the mode table and formulas.
 
 ## Cross-check with `anker-solix-api` #313
 

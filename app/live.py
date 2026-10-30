@@ -29,6 +29,8 @@ from collections import deque
 import paho.mqtt.client as mqtt
 
 from anker_client import AnkerClient
+from limits import fallback_limit, limit_from_ems
+from power_flow import battery_net_w, home_w
 
 FLOW_KEYS = ("p2lp", "p2bp", "p2gp", "g2lp", "g2bp", "b2lp", "b2gp")
 POWER_KEYS = ("pp", "gp", "bp", "lp")
@@ -50,6 +52,8 @@ FOLLOW_ON_COUNT = 2
 TRIGGER_GRACE_S = 12
 WAKE_TIMEOUT_S = 60
 BATTERY_AVG_WINDOW_S = 600
+CHARGE_LIMIT_GRACE_S = 300
+CHARGE_LIMIT_REFRESH_S = 6 * 3600
 
 BATTERY_MODULE_KWH = 5.0
 BATTERY_RESERVE_SOC = 5.0
@@ -146,16 +150,22 @@ def parse_frame(raw: bytes) -> dict | None:
         return None
     if not any(k in data for k in POWER_KEYS + FLOW_KEYS + STATUS_KEYS + ("soc",)):
         return None
-    snap = {"local_time": trans.get("localTime"), "soc": data.get("soc")}
+    snap = {"local_time": trans.get("localTime"), "soc": data.get("soc"),
+            "_ems_keys": tuple(sorted(data))}
     for k in POWER_KEYS + FLOW_KEYS + STATUS_KEYS:
         snap[k] = data.get(k)
+    info = limit_from_ems(data)
+    if info.get("kw") is not None:
+        snap["charge_limit_w"] = int(round(info["kw"] * 1000))
+        snap["charge_limit_source"] = info["source"]
     return snap
 
 
 class LiveFeed:
     def __init__(self, client, pn: str, sn: str, battery_modules: int = 0,
                  reserve_soc: float = BATTERY_RESERVE_SOC,
-                 interval_s: int = DEFAULT_INTERVAL_S):
+                 interval_s: int = DEFAULT_INTERVAL_S,
+                 site: str | None = None):
         self.client = client
         # Own HTTP session: the feed thread must not share requests.Session
         # with the web request threads.
@@ -185,7 +195,13 @@ class LiveFeed:
         self._pending_interval_s: int | None = None
         self._waking_since: float | None = None
         self._last_trigger_error: str | None = None
+        self.site = site
         self._battery_samples: deque = deque()
+        self._charge_limit: dict | None = None
+        self._device_limit: dict | None = None
+        self._last_frame_keys: tuple = ()
+        self._limits_thread: threading.Thread | None = None
+        self._last_limits_error: str | None = None
         # A fixed suffix lets an old broker session collide with a restarted
         # feed. Keep an instance-unique suffix so reconnects are clean.
         self._client_suffix = f"-web-{secrets.token_hex(3)}"
@@ -197,6 +213,11 @@ class LiveFeed:
             return
         self.thread = threading.Thread(target=self._run, name="anker-live", daemon=True)
         self.thread.start()
+        if self.site and (self._limits_thread is None
+                          or not self._limits_thread.is_alive()):
+            self._limits_thread = threading.Thread(
+                target=self._load_limits, name="anker-limits", daemon=True)
+            self._limits_thread.start()
 
     def stop(self) -> None:
         self.stop_event.set()
@@ -213,32 +234,95 @@ class LiveFeed:
 
     # -- read path -----------------------------------------------------
 
-    def _battery_average(self, now: float) -> float | None:
-        """Time-weighted mean battery kW over the last ten minutes.
+    def _averages(self, now: float) -> dict:
+        """Time-weighted signed battery and house-load averages.
 
         Frames do not arrive on a fixed grid: a concurrent 5 s wake can be
         mixed with our 60 s window. Weighting by elapsed time keeps the
-        estimate stable across both.
+        estimate stable across both.  Load samples can be missing; only
+        intervals with both endpoints present contribute to that average.
         """
         cutoff = now - BATTERY_AVG_WINDOW_S
         while self._battery_samples and self._battery_samples[0][0] < cutoff:
             self._battery_samples.popleft()
-        if not self._battery_samples:
-            return None
-        if len(self._battery_samples) == 1:
-            return round(self._battery_samples[0][1], 2)
-        total_w = 0.0
-        total_t = 0.0
-        prev_t, prev_kw = self._battery_samples[0]
-        for t, kw in list(self._battery_samples)[1:]:
-            dt = t - prev_t
-            if dt > 0:
-                total_w += (prev_kw + kw) / 2.0 * dt
-                total_t += dt
-            prev_t, prev_kw = t, kw
-        if total_t <= 0:
-            return round(prev_kw, 2)
-        return round(total_w / total_t, 2)
+        samples = list(self._battery_samples)
+        if not samples:
+            return {"batt_avg_net_kw": None, "batt_avg_kw": None,
+                    "load_avg_kw": None}
+        if len(samples) == 1:
+            net = samples[0][1]
+            load = samples[0][2]
+            return {
+                "batt_avg_net_kw": round(net, 3),
+                "batt_avg_kw": round(abs(net), 2),
+                "load_avg_kw": round(load, 3) if load is not None else None,
+            }
+
+        def weighted(index: int):
+            total = 0.0
+            total_t = 0.0
+            prev_t = samples[0][0]
+            prev_v = samples[0][index]
+            for sample in samples[1:]:
+                t = sample[0]
+                v = sample[index]
+                if prev_v is not None and v is not None:
+                    dt = t - prev_t
+                    if dt > 0:
+                        total += (prev_v + v) / 2.0 * dt
+                        total_t += dt
+                prev_t, prev_v = t, v
+            return total / total_t if total_t > 0 else None
+
+        net = weighted(1)
+        if net is None:
+            net = samples[-1][1]
+        load = weighted(2)
+        return {
+            "batt_avg_net_kw": round(net, 3),
+            "batt_avg_kw": round(abs(net), 2),
+            "load_avg_kw": round(load, 3) if load is not None else None,
+        }
+
+    def _cap_fields(self, now: float) -> dict:
+        """Resolve the runtime charge cap; caller holds the lock."""
+        realtime = self._charge_limit
+        if realtime is not None:
+            try:
+                age = max(0, int(now - float(realtime.get("ts", 0))))
+            except (TypeError, ValueError):
+                age = None
+            if age is None or age <= CHARGE_LIMIT_GRACE_S:
+                return {"charge_limit_kw": realtime.get("kw"),
+                        "charge_limit_source": realtime.get("source")
+                        or "unavailable",
+                        "charge_limit_age_s": age}
+        device = self._device_limit
+        if isinstance(device, dict) and device.get("kw") is not None:
+            try:
+                age = max(0, int(now - float(device.get("ts", 0))))
+            except (TypeError, ValueError):
+                age = None
+            return {"charge_limit_kw": device.get("kw"),
+                    "charge_limit_source": device.get("source")
+                    or "device_attrs",
+                    "charge_limit_age_s": age}
+        fallback = fallback_limit()
+        return {"charge_limit_kw": fallback["kw"],
+                "charge_limit_source": fallback["source"],
+                "charge_limit_age_s": None}
+
+    def set_charge_limit(self, kw, source: str = "plan-save") -> None:
+        try:
+            value = float(kw)
+        except (TypeError, ValueError):
+            return
+        if 0 < value <= 20:
+            with self.lock:
+                now = time.time()
+                entry = {"kw": round(value, 3), "source": source, "ts": now}
+                self._charge_limit = entry
+                self._device_limit = dict(entry)
 
     def get(self) -> dict:
         now = time.time()
@@ -301,7 +385,8 @@ class LiveFeed:
                 snap["waking"] = bool(waking)
                 if age is not None:
                     snap["age_s"] = age
-                snap["batt_avg_kw"] = self._battery_average(now)
+                snap.update(self._averages(now))
+            snap.update(self._cap_fields(now))
             snap["interval_s"] = self.interval_s
             snap["count"] = self.count
             snap["stale_after_s"] = stale_after
@@ -371,6 +456,7 @@ class LiveFeed:
 
     def stats(self) -> dict:
         with self.lock:
+            cap = self._cap_fields(time.time())
             return {
                 "interval_s": self.interval_s,
                 "count": self.count,
@@ -381,6 +467,10 @@ class LiveFeed:
                 "pending_interval_s": self._pending_interval_s,
                 "last_trigger_error": self._last_trigger_error,
                 "battery_samples": len(self._battery_samples),
+                "last_frame_keys": list(self._last_frame_keys)[:64],
+                "charge_limit_source": cap.get("charge_limit_source"),
+                "charge_limit_kw": cap.get("charge_limit_kw"),
+                "limits_error": self._last_limits_error,
             }
 
     def _publish_trigger(self) -> None:
@@ -402,6 +492,31 @@ class LiveFeed:
                 self._last_trigger_error = type(exc).__name__
 
     # -- worker --------------------------------------------------------
+
+    def _load_limits(self) -> None:
+        """Fetch the device-attribute cap in the background, then refresh slowly."""
+        while not self.stop_event.is_set():
+            if not self.site:
+                return
+            try:
+                api = AnkerClient.resume(
+                    self.client.token, self.client.user_id, self.client.country,
+                    self.client.base, self.client.nick)
+                info = api.read_charge_limit(self.site, self.sn)
+                with self.lock:
+                    self._last_limits_error = (
+                        info.get("error") or getattr(api, "last_limits_error", None))
+                    if info.get("kw") is not None:
+                        self._device_limit = {
+                            "kw": round(float(info["kw"]), 3),
+                            "source": info.get("source") or "device_attrs",
+                            "ts": time.time(),
+                        }
+            except Exception as exc:
+                with self.lock:
+                    self._last_limits_error = type(exc).__name__
+            if self.stop_event.wait(CHARGE_LIMIT_REFRESH_S):
+                break
 
     def _fetch_info(self) -> dict:
         js = self.api._post("v1/openapi/devicemanage/get_user_mqtt_info", {},
@@ -494,12 +609,15 @@ class LiveFeed:
         if not snap:
             return
         now = time.time()
+        keys = snap.pop("_ems_keys", ())
         snap.update(
             available=True,
             ts=int(now),
             nominal_capacity_kwh=self.nominal_capacity_kwh,
             reserve_soc=self.reserve_soc,
         )
+        net_kw = battery_net_w(snap) / 1000.0
+        load_kw = home_w(snap) / 1000.0
         with self.lock:
             if self._last_frame_at:
                 gap = now - self._last_frame_at
@@ -510,12 +628,15 @@ class LiveFeed:
             self._frames_total += 1
             self._waking_since = None
             self._last_trigger_error = None
-            bp = snap.get("bp")
-            try:
-                kw = abs(float(bp)) / 1000.0
-            except (TypeError, ValueError):
-                kw = None
-            if kw is not None and kw == kw and kw != float("inf"):
-                self._battery_samples.append((now, kw))
-                self._battery_average(now)
+            self._last_frame_keys = tuple(keys)
+            self._battery_samples.append((now, net_kw, load_kw))
+            self._averages(now)
+            limit_w = snap.pop("charge_limit_w", None)
+            limit_source = snap.pop("charge_limit_source", None)
+            if limit_w is not None:
+                self._charge_limit = {
+                    "kw": round(float(limit_w) / 1000.0, 3),
+                    "source": limit_source or "realtime.ems_second",
+                    "ts": now,
+                }
             self.snapshot = snap

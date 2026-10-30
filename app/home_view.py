@@ -6,59 +6,53 @@ signed watts, so this module is the single place that decides whether the
 house is importing/exporting, charging/discharging, and idle.  It is pure and
 has no Anker dependency, which keeps it easy to unit-test.
 
-Field meanings (see REPORT.md section 12):
-
-    p2lp / p2bp / p2gp   PV -> load / battery / grid
-    g2lp / g2bp          grid -> load / battery
-    b2lp / b2gp          battery -> load / grid
-
-The edge fields are non-negative.  Fallbacks use the aggregate sign
-convention observed on the device: a positive `bp` is discharging (the
-device reports 1940 W while `b2lp` is 1940 W); a positive `gp` is treated as
-import.  Edge flows always win when present.
+The battery ETA is delegated to :mod:`battery_estimate`, which uses the
+ten-minute signed average for the state and the instantaneous solar/grid
+readings for the solar-curve branch.
 """
 from __future__ import annotations
 
-ACTIVE_W = 5.0
-BATTERY_EFFICIENCY = 0.95
-POWER_KEYS = ("pp", "gp", "bp", "lp")
-FLOW_KEYS = ("p2lp", "p2bp", "p2gp", "g2lp", "g2bp", "b2lp", "b2gp")
+from datetime import datetime
 
+from battery_estimate import estimate_battery
+from power_flow import (
+    ACTIVE_W,
+    battery_charge_w,
+    battery_discharge_w,
+    battery_display_w,
+    battery_net_w,
+    grid_display_w,
+    grid_export_w,
+    grid_import_w,
+    grid_net_w,
+    has_power_fields,
+    home_w,
+    number,
+    positive,
+    solar_w,
+    watts,
+)
 
-def _number(value):
-    """Return a finite float, or None for missing/invalid values."""
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return None
-    if out != out or out in (float("inf"), float("-inf")):  # NaN / inf
-        return None
-    return out
-
-
-def _positive(value) -> float:
-    value = _number(value)
-    return max(0.0, value) if value is not None else 0.0
-
-
-def _watts(value) -> int:
-    return int(round(max(0.0, value)))
+try:  # Python 3.9+; the Docker image may not ship a full tz database.
+    from zoneinfo import ZoneInfo
+except ImportError:  # pragma: no cover - only on very old Python
+    ZoneInfo = None
 
 
 def _power(value) -> dict:
     if value is None:
         return {"w": None, "kw": None}
-    w = _watts(value)
+    w = watts(value)
     return {"w": w, "kw": round(w / 1000.0, 2)}
 
 
 def _flow(value) -> dict:
-    value = _positive(value)
-    return {"w": _watts(value), "active": value > ACTIVE_W}
+    value = positive(value)
+    return {"w": watts(value), "active": value > ACTIVE_W}
 
 
 def _soc(value):
-    value = _number(value)
+    value = number(value)
     if value is None:
         return None
     return int(round(max(0.0, min(100.0, value))))
@@ -73,7 +67,54 @@ def _age_label(age_s):
     return f"{minutes}m {seconds}s" if seconds else f"{minutes}m"
 
 
-def build_home_view(snapshot: dict | None) -> dict:
+def _local_hour(now, tz: str) -> float | None:
+    """Decimal local hour from an epoch timestamp in the site timezone."""
+    try:
+        ts = float(now)
+    except (TypeError, ValueError):
+        return None
+    if ts != ts or ts in (float("inf"), float("-inf")):
+        return None
+    dt = None
+    if tz and ZoneInfo is not None:
+        try:
+            dt = datetime.fromtimestamp(ts, ZoneInfo(tz))
+        except Exception:
+            dt = None
+    if dt is None:
+        try:
+            dt = datetime.fromtimestamp(ts)
+        except Exception:
+            return None
+    return dt.hour + dt.minute / 60.0 + dt.second / 3600.0
+
+
+def _empty_estimate() -> dict:
+    return {
+        "mode": "unavailable",
+        "rate_kw": None,
+        "hours": None,
+        "clock": None,
+        "soc_final": None,
+        "solar_end": None,
+        "solar": None,
+        "reason": "unavailable",
+    }
+
+
+def _legacy_hours(estimate: dict) -> tuple[float | None, float | None]:
+    hours = estimate.get("hours")
+    if hours is None:
+        return None, None
+    mode = estimate.get("mode")
+    if mode == "discharging":
+        return round(hours, 2), None
+    if mode in ("grid", "charging", "solar", "full"):
+        return None, round(hours, 2)
+    return None, None
+
+
+def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
     """Build the small, stable view model consumed by ``home-view.js``."""
     snap = snapshot if isinstance(snapshot, dict) else {}
     available = bool(snap.get("available"))
@@ -88,8 +129,7 @@ def build_home_view(snapshot: dict | None) -> dict:
     # frame can be an EMS envelope with an empty/unknown data object; treating
     # that as available turns every metric into 0.00. A real idle frame still
     # has numeric zeroes, so test for None/missing, not truthiness.
-    if available and not any(snap.get(k) is not None
-                             for k in POWER_KEYS + FLOW_KEYS):
+    if available and not has_power_fields(snap):
         snap = dict(snap)
         snap["available"] = False
         snap["reason"] = "no telemetry fields"
@@ -111,7 +151,11 @@ def build_home_view(snapshot: dict | None) -> dict:
                         "soc": None, "label": "Unavailable",
                         "nominal_capacity_kwh": None, "reserve_soc": None,
                         "available_kwh": None, "hours_to_empty": None,
-                        "hours_to_full": None, "batt_avg_kw": None},
+                        "hours_to_full": None, "batt_avg_kw": None,
+                        "batt_avg_net_kw": None, "load_avg_kw": None,
+                        "charge_limit_kw": None,
+                        "charge_limit_source": "unavailable",
+                        "estimate": _empty_estimate()},
             "home": {"w": None, "kw": None, "state": "unavailable"},
             "flows": {
                 "solar": _flow(0),
@@ -128,88 +172,73 @@ def build_home_view(snapshot: dict | None) -> dict:
             },
         }
 
-    pv = _positive(snap.get("pp"))
-    pv_edge = (_positive(snap.get("p2lp")) + _positive(snap.get("p2bp"))
-               + _positive(snap.get("p2gp")))
-    solar_w = max(pv, pv_edge)
-
-    grid_in = _positive(snap.get("g2lp")) + _positive(snap.get("g2bp"))
-    grid_out = _positive(snap.get("p2gp")) + _positive(snap.get("b2gp"))
-    gp = _number(snap.get("gp"))
-    grid_edges = ("g2lp", "g2bp", "p2gp", "b2gp")
-    if not any(snap.get(k) is not None for k in grid_edges) and gp:
-        # Older/partial frames may omit edge flows; fall back to the sign of
-        # the aggregate.  A positive gp is an import on this firmware.
-        if gp > 0:
-            grid_in = gp
-        else:
-            grid_out = -gp
-
-    batt_charge = _positive(snap.get("p2bp")) + _positive(snap.get("g2bp"))
-    batt_discharge = _positive(snap.get("b2lp")) + _positive(snap.get("b2gp"))
-    bp = _number(snap.get("bp"))
-    batt_edges = ("p2bp", "g2bp", "b2lp", "b2gp")
-    if not any(snap.get(k) is not None for k in batt_edges) and bp:
-        # Positive bp is discharge, matching the captured 1940 W frame.
-        if bp > 0:
-            batt_discharge = bp
-        else:
-            batt_charge = -bp
-
-    home_raw = _positive(snap.get("lp"))
-    home_edge = (_positive(snap.get("p2lp")) + _positive(snap.get("g2lp"))
-                 + _positive(snap.get("b2lp")))
-    # Prefer the aggregate load; fall back to the sum of edges on partial frames.
-    home_w = home_raw if home_raw > ACTIVE_W else home_edge
-
-    grid_net = grid_in - grid_out
+    solar_value = solar_w(snap)
+    grid_in = grid_import_w(snap)
+    grid_out = grid_export_w(snap)
+    grid_net = grid_net_w(snap)
+    grid_w = grid_display_w(snap)
     if grid_net > 0:
         grid_state, grid_label = "importing", "Importing"
     elif grid_net < 0:
         grid_state, grid_label = "exporting", "Exporting"
     else:
         grid_state, grid_label = "idle", "Idle"
-    # The card shows the aggregate meter value; edge flows decide direction.
-    grid_w = abs(gp) if gp is not None and abs(gp) > ACTIVE_W else abs(grid_net)
 
-    batt_net = batt_charge - batt_discharge
+    batt_charge = battery_charge_w(snap)
+    batt_discharge = battery_discharge_w(snap)
+    batt_net = battery_net_w(snap)
+    batt_w = battery_display_w(snap)
     if batt_net > 0:
         batt_state, batt_label = "charging", "Charging"
     elif batt_net < 0:
         batt_state, batt_label = "discharging", "Discharging"
     else:
         batt_state, batt_label = "idle", "Idle"
-    batt_w = abs(bp) if bp is not None and abs(bp) > ACTIVE_W else abs(batt_net)
+
+    load_w = home_w(snap)
 
     soc = _soc(snap.get("soc"))
     if soc is not None:
         batt_label = f"{soc}% charged"
 
-    nominal = _number(snap.get("nominal_capacity_kwh"))
-    reserve = _number(snap.get("reserve_soc"))
+    nominal = number(snap.get("nominal_capacity_kwh"))
+    reserve = number(snap.get("reserve_soc"))
+    soc_raw = number(snap.get("soc"))
+    average_kw = number(snap.get("batt_avg_kw"))
+    avg_net_kw = number(snap.get("batt_avg_net_kw"))
+    load_avg_kw = number(snap.get("load_avg_kw"))
+    charge_limit_kw = number(snap.get("charge_limit_kw"))
+    charge_limit_source = str(snap.get("charge_limit_source") or "default_6kw")
+
     available_kwh = None
-    hours_to_empty = None
-    hours_to_full = None
-    soc_raw = _number(snap.get("soc"))
-    average_kw = _number(snap.get("batt_avg_kw"))
     if nominal is not None and nominal > 0 and soc_raw is not None and reserve is not None:
         usable_soc = max(0.0, min(100.0, soc_raw) - reserve)
         available_kwh = max(0.0, nominal * usable_soc / 100.0)
-        # Use the server's ten-minute average when present; fall back to the
-        # instantaneous magnitude on the first frames of a fresh feed.
-        batt_kw = (average_kw if average_kw is not None and average_kw > 0
-                   else max(0.0, batt_w / 1000.0))
-        if batt_state == "discharging" and batt_kw > 0:
-            hours_to_empty = available_kwh * BATTERY_EFFICIENCY / batt_kw
-        elif batt_state == "charging" and batt_kw > 0:
-            deficit = max(0.0, nominal - available_kwh)
-            hours_to_full = deficit / (batt_kw * BATTERY_EFFICIENCY)
+
+    local_hour = _local_hour(now if now is not None else snap.get("ts"), tz)
+    estimate = estimate_battery(
+        soc=soc_raw,
+        nominal_kwh=nominal,
+        reserve_soc=reserve,
+        battery_net_w=batt_net,
+        battery_avg_net_w=(avg_net_kw * 1000.0 if avg_net_kw is not None else None),
+        battery_avg_kw=average_kw,
+        solar_w=solar_value,
+        grid_import_w=grid_in,
+        grid_export_w=grid_out,
+        home_w=load_w,
+        load_avg_kw=load_avg_kw,
+        now_hour=local_hour,
+        charge_limit_kw=charge_limit_kw,
+        charge_limit_source=charge_limit_source,
+    )
+    hours_to_empty, hours_to_full = _legacy_hours(estimate)
+    if estimate.get("hours") is not None:
+        estimate = dict(estimate)
+        estimate["hours"] = round(estimate["hours"], 3)
+
     if available_kwh is not None:
         available_kwh = round(available_kwh, 2)
-    if hours_to_empty is not None:
-        hours_to_empty = round(hours_to_empty, 2)
-    if hours_to_full is not None:
-        hours_to_full = round(hours_to_full, 2)
 
     if waking:
         status = {"level": "waking",
@@ -222,13 +251,13 @@ def build_home_view(snapshot: dict | None) -> dict:
     else:
         status = {"level": "live", "label": "Live"}
 
-    solar_state = "producing" if solar_w > ACTIVE_W else "idle"
+    solar_state = "producing" if solar_value > ACTIVE_W else "idle"
     return {
         "available": True,
         "stale": stale,
         "age_s": age_s,
         "soc": soc,
-        "solar": {**_power(solar_w), "state": solar_state},
+        "solar": {**_power(solar_value), "state": solar_state},
         "grid": {**_power(grid_w), "state": grid_state, "label": grid_label},
         "battery": {**_power(batt_w), "state": batt_state, "soc": soc,
                     "label": batt_label,
@@ -237,11 +266,16 @@ def build_home_view(snapshot: dict | None) -> dict:
                     "available_kwh": available_kwh,
                     "hours_to_empty": hours_to_empty,
                     "hours_to_full": hours_to_full,
-                    "batt_avg_kw": average_kw},
-        "home": {**_power(home_w),
-                 "state": "consuming" if home_w > ACTIVE_W else "idle"},
+                    "batt_avg_kw": average_kw,
+                    "batt_avg_net_kw": avg_net_kw,
+                    "load_avg_kw": load_avg_kw,
+                    "charge_limit_kw": charge_limit_kw,
+                    "charge_limit_source": charge_limit_source,
+                    "estimate": estimate},
+        "home": {**_power(load_w),
+                 "state": "consuming" if load_w > ACTIVE_W else "idle"},
         "flows": {
-            "solar": _flow(solar_w),
+            "solar": _flow(solar_value),
             "grid_import": _flow(grid_in),
             "grid_export": _flow(grid_out),
             "battery_charge": _flow(batt_charge),

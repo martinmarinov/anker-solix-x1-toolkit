@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 import unittest
+from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -31,13 +32,17 @@ class FakeFeed:
             "waking": False, "pp": 1200, "gp": 0, "bp": 0, "lp": 1200,
             "soc": 55, "interval_s": self.interval_s, "count": 60,
             "stale_after_s": 30, "batt_avg_kw": 0.0,
+            "batt_avg_net_kw": 0.0, "load_avg_kw": 1.2,
+            "nominal_capacity_kwh": 15.0, "reserve_soc": 5.0,
+            "charge_limit_kw": 6.0, "charge_limit_source": "default_6kw",
         }
 
     def stats(self):
         return {"interval_s": self.interval_s, "count": 60, "frames": 3,
                 "window_frames": 3, "last_gap_s": 5.0, "waking": False,
                 "pending_interval_s": None, "last_trigger_error": None,
-                "battery_samples": 3}
+                "battery_samples": 3, "last_frame_keys": ["pp", "bp"],
+                "charge_limit_source": "default_6kw", "charge_limit_kw": 6.0}
 
     def set_interval(self, value):
         self.calls.append(value)
@@ -99,6 +104,31 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(js["stale_after_s"], 30)
         self.assertEqual(js["live_stats"]["interval_s"], 5)
         self.assertTrue(js["view"]["available"])
+        self.assertEqual(js["view"]["battery"]["estimate"]["mode"], "idle")
+        self.assertEqual(js["view"]["battery"]["charge_limit_kw"], 6.0)
+
+    def test_live_exposes_solar_estimate_in_the_site_timezone(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        original = self.feed.get
+        self.feed.get = lambda: {
+            "available": True, "ts": int(ts), "age_s": 4, "stale": False,
+            "waking": False, "pp": 4000, "gp": 0, "bp": -700, "lp": 500,
+            "soc": 50, "interval_s": 5, "count": 60, "stale_after_s": 30,
+            "nominal_capacity_kwh": 15.0, "reserve_soc": 5.0,
+            "batt_avg_net_kw": 0.7, "batt_avg_kw": 0.7, "load_avg_kw": 0.5,
+            "charge_limit_kw": 6.0, "charge_limit_source": "default_6kw",
+        }
+        try:
+            status, payload, _ = self.request(
+                "GET", f"/api/live?site={SITE['id']}&sn={SN}")
+        finally:
+            self.feed.get = original
+        self.assertEqual(status, 200)
+        estimate = json.loads(payload)["view"]["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "solar")
+        self.assertAlmostEqual(estimate["hours"], 4.653, places=2)
+        self.assertEqual(estimate["clock"], "15:09")
+        self.assertFalse(estimate["solar"]["capped"])
 
     def test_interval_post_reports_pending_and_sets_cookie(self):
         self.feed.calls.clear()

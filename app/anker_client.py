@@ -23,6 +23,8 @@ from cryptography.hazmat.primitives import padding, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from limits import limit_from_attrs
+
 # Server's static ECDH P-256 public key (uncompressed point, hex). Public
 # material used to encrypt the login password; same key the Android app uses.
 API_PUBLIC_KEY_HEX = (
@@ -553,6 +555,50 @@ class AnkerClient:
                     errors.append(f"attrs: {e.message}")
         self.last_limits_error = " · ".join(errors)
         return None
+
+    def read_charge_limit(self, site_id, sn: str) -> dict:
+        """Best-effort dynamic charge ceiling for the solar ETA.
+
+        Try the device attributes the app itself writes (`ac_power_limit`),
+        then the existing power-limit ladder.  Never return a hardcoded cap:
+        the caller decides whether to use the 6 kW fallback.  Empty/unsupported
+        responses return ``kw=None`` instead of raising.
+        """
+        self.last_limits_error = None
+        errors = []
+        if sn:
+            body = {
+                "site_id": site_id,
+                "device_sn": sn,
+                "attributes": ["ac_power_limit", "maxChargingPower",
+                               "gridChargingPower", "legal_power_limit"],
+            }
+            try:
+                js = self._post(P_DEVICE_ATTRS, body, timeout=8, attempts=1)
+                info = limit_from_attrs(js.get("data"))
+                if info.get("kw") is not None:
+                    return info
+                errors.append("device_attrs: no charge field")
+            except AnkerError as e:
+                if e.kind in ("auth", "rate_limit"):
+                    raise
+                errors.append(f"device_attrs: {e.message}")
+
+        try:
+            data = self.power_limits(site_id, sn)
+        except AnkerError as e:
+            if e.kind in ("auth", "rate_limit"):
+                raise
+            data = None
+            errors.append(f"power_limits: {e.message}")
+        info = limit_from_attrs(data, "power_limits")
+        if info.get("kw") is not None:
+            return info
+        if getattr(self, "last_limits_error", None):
+            errors.append(str(self.last_limits_error))
+        self.last_limits_error = " · ".join(errors) or "no charge limit in responses"
+        return {"kw": None, "source": "unavailable", "key": None, "raw": None,
+                "error": self.last_limits_error}
 
     def get_plan(self, site_id, sn: str) -> dict:
         """Read the TOU plan, trying the endpoints the app actually uses.

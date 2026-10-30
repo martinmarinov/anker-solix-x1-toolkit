@@ -41,6 +41,16 @@
   height: 100%;
 }
 
+/* Two identical-geometry layers. The full-bleed sky keeps each layer opaque,
+   so the clock's opacity crossfade is a true colour interpolation. */
+.scene-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.scene-layer--night { opacity: 0; }
+
 .scene-glow {
   position: absolute;
   inset: 0;
@@ -48,6 +58,15 @@
     radial-gradient(40% 38% at 50% 46%, rgba(255, 230, 170, .13), transparent 70%),
     radial-gradient(72% 42% at 50% 90%, rgba(194, 214, 181, .17), transparent 76%),
     radial-gradient(28% 22% at 50% 63%, rgba(255, 255, 255, .10), transparent 72%);
+}
+
+/* Cool moonlight replaces the warm afternoon wash; same gradients, same
+   coverage, only the colours change. */
+.scene-glow--night {
+  background:
+    radial-gradient(40% 38% at 50% 46%, rgba(205, 225, 255, .14), transparent 70%),
+    radial-gradient(72% 42% at 50% 90%, rgba(186, 204, 174, .18), transparent 76%),
+    radial-gradient(28% 22% at 50% 63%, rgba(226, 238, 255, .07), transparent 72%);
 }
 
 .house {
@@ -59,6 +78,10 @@
   height: auto;
   transform: translate(-50%, -50%);
   filter: drop-shadow(0 28px 34px rgba(92, 75, 48, .14));
+}
+
+.house--night {
+  filter: drop-shadow(0 28px 34px rgba(4, 12, 24, .30));
 }
 
 /* --------------------------------------------------------------- tiles */

@@ -10,6 +10,10 @@ Read [`../REPORT.md`](../REPORT.md) for the protocol evidence behind every call.
 ```
 app/
   anker_client.py     protocol client: login, sites, devices, plan, write, validation
+  power_flow.py       pure edge/aggregate parsing -> signed solar/grid/battery/home W
+  solar_forecast.py   single-reading half-sine solar model
+  battery_estimate.py mode selection, load compensation, charge-cap energy math
+  limits.py           dynamic charge-limit extraction and the 6 kW fallback
   home_view.py        pure telemetry -> dashboard view-model mapping (tested)
   live.py             per-session MQTT feed (read-only, mTLS)
   server.py           stdlib HTTP server, sessions, write/verify/rollback
@@ -17,8 +21,8 @@ app/
     index.html        login, Home stage, plan drawer
     home-view.js      formatting, state attributes, clock, flow layout
     css/              base, home, drawer
-    assets/house.svg  hand-built vector house (the only illustration)
-  tests/              unittest: home_view state/mapping tests
+    assets/           house.svg + house-night.svg (same geometry, day/night palette)
+  tests/              unittest: view, solar model, limits, live and server contracts
 ```
 
 ---
@@ -26,7 +30,7 @@ app/
 ## 1. Quick start
 
 ```sh
-python3 -m pip install --user requests cryptography paho-mqtt
+python3 -m pip install --user requests cryptography paho-mqtt tzdata
 ./pandacode-run.sh                 # http://127.0.0.1:8770
 ```
 
@@ -76,10 +80,22 @@ capacity, never offered as a plan target.
   windows, trees, lawn, ground). Icons are inline SVG; the sky, sun and hills are inline
   SVG/CSS. No external images, fonts, CDNs or runtime AI calls; the UI uses the browser's
   system sans, which resolves to Roboto in the Skylight WebView.
+- **Night scenery without a second theme.** `house-night.svg` is a colour-only copy of the day
+  house: same viewBox, paths, positions, opacities and gradients. The night sky reuses the
+  day cloud and hill paths and swaps the sun glow for a cool moon glow; only the stars are new
+  geometry. Both scenes are stacked, pixel-aligned layers. From **19:00–20:00** the clock
+  crossfades day→night and from **06:00–07:00** night→day, using the same once-a-second clock
+  as the drawer (two opacity writes per minute, no extra timer, no CSS animation). Outside
+  those windows the scene is fully day or fully night; `data-sky` is `day`, `dusk` or `night`.
+  The crossfade follows the site timezone, and the night palette is a moonlit sage/blue set
+  rather than a dark/black screen: the hills behind the battery caption stay above 4.5:1
+  against the page ink, so the card, battery and text colours do not change. The night house
+  lights its windows warm; the only cool shadow is the CSS `drop-shadow` on the night image.
 - **Live state in one place.** The server normalises raw MQTT into a small `view`:
   `importing/exporting/idle`, `charging/discharging/idle`, clamped SOC, per-edge flow
   activity and `live/waking/stale/waiting/offline`. The browser renders values and sets
-  `data-available`, `data-stale`, `data-solar`, `data-grid`, `data-battery`, `data-status`.
+  `data-available`, `data-stale`, `data-solar`, `data-grid`, `data-battery`, `data-status`,
+  `data-sky` and `data-estimate`.
   The battery accent interpolates with SOC: green above 80%, blending through amber at 30%,
   then red at 5% (smoothstep between stops). Each tone pairs a bright fill with a dark ink
   for the shell outline; the SOC, power and remaining-charge text all use the page ink, so
@@ -87,6 +103,17 @@ capacity, never offered as a plan target.
   `data-battery`: it travels down while discharging and up while charging. That is the only
   looping motion; fill-height, colours and flow-opacity changes are short transitions. It
   stops when idle/unavailable and is disabled by `prefers-reduced-motion`.
+- **Battery ETA is source-aware.** The signed ten-minute battery average decides
+  idle/charge/discharge; the instantaneous solar/grid readings decide which formula to use.
+  Discharge and grid charging keep the existing linear formulas. Solar charging inside
+  07:00–18:00 uses a half-sine curve scaled from the current PV reading, subtracts the
+  ten-minute house load, and clips at the runtime inverter cap. The cap comes from the live
+  EMS field when present, then the device attribute, then a named **6 kW** fallback; it is
+  never a constant in the formula. On the tested A5102 the realtime frame and the attribute
+  APIs exposed **no** charge cap, so the 6 kW fallback is the path in use; a just-saved plan
+  supplies its written value until the next read. If the curve cannot fill the pack, the
+  caption shows the expected SOC at 18:00 (`87% by 18:00`) instead of a fake finish time.
+  The model and its limits are in [`docs/SOLAR-ESTIMATE.md`](../docs/SOLAR-ESTIMATE.md).
 - **Flows are measured, not guessed.** `home-view.js` measures the solar/grid/home cards and
   the battery shell, then redraws the SVG paths on resize/orientation change. Solar runs
   card → battery; grid runs card ↔ battery (import/export); home runs battery → card when the
@@ -125,7 +152,9 @@ capacity, never offered as a plan target.
   date and site identity now live in the plan drawer header. A status line appears under the
   battery only when telemetry is not live.
 - **Clock** uses the site timezone from the account when present, otherwise the browser's
-  local time. It updates once a minute (timer ticks every second but only writes on change).
+  local time. It updates once a minute (timer ticks every second but only writes on change);
+  the same minute change drives the 19:00/06:00 backdrop crossfade, so there is no second
+  timer.
 - **Kiosk-friendly.** The page never scrolls on Home in landscape; the drawer scrolls
   independently. Fullscreen is available from the drawer. `prefers-reduced-motion` is
   respected from day one.
@@ -297,6 +326,10 @@ headers or tokens.
 
 ## 9. Known limitations
 
+- **The solar ETA is a forecast, not a measurement.** It assumes a fixed 07:00–18:00
+  half-sine and a constant house load; outside that window, or below 50 W PV, it falls back
+  to the linear battery rate. The charge cap comes from the live frame or device attribute
+  when readable, otherwise a 6 kW fallback. It never changes charging.
 - **No summary metrics or weather yet.** The previous mockup's "Today's Production / CO₂ /
   Earnings" strip and the weather row are intentionally absent; there is no verified Anker
   stats source in this build.

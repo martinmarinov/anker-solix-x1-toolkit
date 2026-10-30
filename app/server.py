@@ -895,7 +895,7 @@ class Handler(BaseHTTPRequestHandler):
             live = LiveFeed(
                 sess["client"], main.get("code") or "device", chosen_sn,
                 battery_modules=battery_modules, reserve_soc=reserve_soc,
-                interval_s=interval)
+                interval_s=interval, site=site)
             feeds[key] = live
             live.start()
             return live, site, chosen_sn
@@ -921,7 +921,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.drop_session()
             return self.fail(self.status_for(e), e.message, e.kind)
         snap = live.get()
-        view = build_home_view(snap)
+        view = build_home_view(snap, now=snap.get("ts"),
+                               tz=self._site_timezone(s, site))
         interval = snap.get("interval_s", live.interval_s)
         self.json(200, {"ok": True, "site": site, "sn": sn,
                         "timezone": self._site_timezone(s, site),
@@ -1127,6 +1128,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(502,
                     "Could not set the AC charge limit; the plan was not written. "
                     f"({e.message})", "limit", {"limit_kw": limit_kw})
+
+            # The solar ETA can use the value we just wrote immediately, even
+            # if the read-back endpoint is empty on this firmware.
+            feeds = s.get("live") or {}
+            if isinstance(feeds, dict):
+                for feed in list(feeds.values()):
+                    if (getattr(feed, "sn", None) == sn
+                            and getattr(feed, "site", site) == site):
+                        try:
+                            feed.set_charge_limit(limit_kw, "plan-save")
+                        except Exception:
+                            pass
 
             # Whole-hour boundaries: the device floors :30 to the previous hour.
 

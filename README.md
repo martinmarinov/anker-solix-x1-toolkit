@@ -24,6 +24,17 @@ the active meter band; battery text uses the page ink.</em></p>
   with a **2 s floor** (2 s at 5 s, 20 s at 60 s).
   A drawer slider selects a **5–60 s** MQTT cadence; the choice persists across sign-out and
   account switches in its own preference cookie. Stale thresholds follow the cadence.
+- **Solar-aware battery ETA.** The signed ten-minute battery average sets idle/charge/discharge;
+  instantaneous PV and grid readings choose the formula. Discharge and grid charging stay
+  linear. Solar charging between 07:00 and 18:00 uses a single-reading solar curve, subtracts
+  the house load and clips at the runtime inverter cap. When the sun cannot fill the pack, the
+  dashboard shows the expected SOC at 18:00 instead of a false finish time. See
+  [`docs/SOLAR-ESTIMATE.md`](docs/SOLAR-ESTIMATE.md).
+- **Day / night backdrop.** Between **19:00 and 20:00** the scene crossfades from the daylight
+  house to a moonlit copy with lit windows and stars, and between **06:00 and 07:00** it fades
+  back. It follows the site timezone and the existing once-a-second clock; the UI palette does
+  not change. The two scenes share one pixel-aligned geometry, so the crossfade does not move
+  the house or the hills.
 - **Time-of-Use editor.** Reads the site, inverter and existing plan from your account.
   Edits seasons, weekday/weekend periods, tariffs and buy/sell prices. Periods cover the full
   day and stay contiguous.
@@ -80,6 +91,8 @@ separate Anker sessions and subscriptions. Put it behind HTTPS and run with
 - [`docs/MQTT-WAKE.md`](docs/MQTT-WAKE.md) — how the live MQTT stream is woken.
 - [`docs/HOUSE-ASSET.md`](docs/HOUSE-ASSET.md) — source and design notes for the vector
   house.
+- [`docs/SOLAR-ESTIMATE.md`](docs/SOLAR-ESTIMATE.md) — solar-aware battery ETA: mode table,
+  curve, load compensation and the runtime charge cap.
 - [`REPORT.md`](REPORT.md) — full investigation, evidence and findings.
 - [`thomluther/anker-solix-api`](https://github.com/thomluther/anker-solix-api) — independent
   community API; issue #313 cross-checked the Home Energy System (HES) enums and id semantics.

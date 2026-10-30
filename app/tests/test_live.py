@@ -64,6 +64,12 @@ def make_feed(interval: int = 5, snapshot: dict | None = None,
     feed._waking_since = None
     feed._last_trigger_error = None
     feed._battery_samples = deque()
+    feed.site = None
+    feed._charge_limit = None
+    feed._device_limit = None
+    feed._last_frame_keys = ()
+    feed._limits_thread = None
+    feed._last_limits_error = None
     feed._mqtt = FakeMqtt()
     feed.wakes = 0
 
@@ -237,14 +243,28 @@ class LiveFeedTests(unittest.TestCase):
         feed = make_feed(interval=60)
         now = time.time()
         feed._battery_samples.extend([
-            (now - 400, 1.0), (now - 200, 3.0), (now, 5.0)])
-        self.assertEqual(feed._battery_average(now), 3.0)
+            (now - 400, 1.0, 0.4), (now - 200, 3.0, 0.6), (now, 5.0, 0.8)])
+        averages = feed._averages(now)
+        self.assertEqual(averages["batt_avg_net_kw"], 3.0)
+        self.assertEqual(averages["batt_avg_kw"], 3.0)
+        self.assertAlmostEqual(averages["load_avg_kw"], 0.6)
 
     def test_battery_average_prunes_old_samples(self):
         feed = make_feed(interval=60)
         now = time.time()
-        feed._battery_samples.extend([(now - 700, 9.0), (now - 10, 2.0)])
-        self.assertEqual(feed._battery_average(now), 2.0)
+        feed._battery_samples.extend([
+            (now - 700, 9.0, 1.0), (now - 10, 2.0, 0.5)])
+        averages = feed._averages(now)
+        self.assertEqual(averages["batt_avg_net_kw"], 2.0)
+        self.assertEqual(averages["load_avg_kw"], 0.5)
+
+    def test_battery_average_keeps_signed_direction(self):
+        feed = make_feed(interval=60)
+        now = time.time()
+        feed._battery_samples.extend([(now - 100, -1.5, 0.5), (now, -0.5, 0.5)])
+        averages = feed._averages(now)
+        self.assertAlmostEqual(averages["batt_avg_net_kw"], -1.0)
+        self.assertEqual(averages["batt_avg_kw"], 1.0)
 
     def test_on_message_updates_window_and_average(self):
         feed = make_feed(interval=60)
@@ -256,9 +276,60 @@ class LiveFeedTests(unittest.TestCase):
         self.assertEqual(feed._window_frames, 1)
         self.assertEqual(feed.stats()["battery_samples"], 1)
         snap = feed.get()
+        self.assertAlmostEqual(snap["batt_avg_net_kw"], 1.5)
         self.assertAlmostEqual(snap["batt_avg_kw"], 1.5)
+        self.assertAlmostEqual(snap["load_avg_kw"], 0.5)
+        self.assertEqual(snap["charge_limit_kw"], 6.0)
+        self.assertEqual(snap["charge_limit_source"], "default_6kw")
         self.assertFalse(snap["waking"])
         self.assertFalse(snap["stale"])
+
+    def test_parse_frame_carries_realtime_charge_limit(self):
+        snap = parse_frame(frame({
+            "type": "ems",
+            "data": {"pp": 1000, "bp": -500, "lp": 500, "soc": 50,
+                     "mcp": 8000, "unknown_key": 1},
+        }))
+        self.assertEqual(snap["charge_limit_w"], 8000)
+        self.assertEqual(snap["charge_limit_source"], "realtime.ems_second.mcp")
+        self.assertIn("mcp", snap["_ems_keys"])
+
+    def test_on_message_caches_realtime_cap_and_stats_keys(self):
+        feed = make_feed(interval=60)
+        feed._on_message(None, None, SimpleNamespace(payload=frame({
+            "type": "ems",
+            "data": {"pp": 1000, "bp": -1500, "gp": 0, "lp": 500, "soc": 50,
+                     "ac_power_limit": 4200},
+        })))
+        snap = feed.get()
+        self.assertEqual(snap["charge_limit_kw"], 4.2)
+        self.assertEqual(snap["charge_limit_source"],
+                         "realtime.ems_second.ac_power_limit")
+        self.assertIn("ac_power_limit", feed.stats()["last_frame_keys"])
+
+    def test_stale_realtime_cap_falls_back_to_device_attrs_then_6kw(self):
+        feed = make_feed(interval=60)
+        now = time.time()
+        feed._charge_limit = {"kw": 1.0, "source": "realtime.ems_second.mcp",
+                              "ts": now - 400}
+        feed._device_limit = {"kw": 4.2,
+                              "source": "device_attrs.ac_power_limit",
+                              "ts": now - 10}
+        snap = feed.get()
+        self.assertEqual(snap["charge_limit_kw"], 4.2)
+        self.assertEqual(snap["charge_limit_source"],
+                         "device_attrs.ac_power_limit")
+        feed._device_limit = None
+        snap = feed.get()
+        self.assertEqual(snap["charge_limit_kw"], 6.0)
+        self.assertEqual(snap["charge_limit_source"], "default_6kw")
+
+    def test_plan_save_cap_overrides_device_cache(self):
+        feed = make_feed(interval=60)
+        feed.set_charge_limit(3.5, "plan-save")
+        snap = feed.get()
+        self.assertEqual(snap["charge_limit_kw"], 3.5)
+        self.assertEqual(snap["charge_limit_source"], "plan-save")
 
 
 if __name__ == "__main__":

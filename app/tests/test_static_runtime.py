@@ -16,6 +16,7 @@ EXPECTED = {
     "css/home.css",
     "css/drawer.css",
     "assets/house.svg",
+    "assets/house-night.svg",
 }
 
 def _contrast(a: str, b: str) -> float:
@@ -314,6 +315,85 @@ class StaticRuntimeTests(unittest.TestCase):
             self.assertIn(colour, svg)
         self.assertLess(svg.count("<linearGradient"), 10)
 
+    def test_night_house_keeps_the_day_geometry(self):
+        day = (STATIC / "assets/house.svg").read_text(encoding="utf-8")
+        night = (STATIC / "assets/house-night.svg").read_text(encoding="utf-8")
+
+        def geometry(svg: str) -> str:
+            svg = re.sub(r"<title.*?</title>", "", svg, flags=re.S)
+            return re.sub(r'(?:fill|stroke|stop-color)="[^"]*"', "", svg)
+
+        # Only the title and the palette may differ, so the two layers stay
+        # pixel-aligned when the clock crossfades them.
+        self.assertEqual(geometry(day), geometry(night))
+        self.assertIn("at night", night)
+        for warm in ("#ffe6ad", "#ffc978"):
+            self.assertIn(warm, night)
+        for daylight_colour in ("#e3ecd3", "#b8d2ae", "#a7cde6", "#fffdf7"):
+            self.assertNotIn(daylight_colour, night)
+
+    def test_scene_has_two_pixel_aligned_sky_layers(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertIn('id="sceneDay"', html)
+        self.assertIn('id="sceneNight"', html)
+        self.assertEqual(html.count('class="scene-layer '), 2)
+        day, night = re.findall(
+            r'<svg class="scene-bg"[^>]*>(.*?)</svg>', html, re.S)
+        # Same clouds and hills, same coordinates; the stars are the only new
+        # geometry, otherwise the crossfade would ghost.
+        self.assertEqual(
+            re.findall(r'\sd="([^"]+)"', day),
+            re.findall(r'\sd="([^"]+)"', night),
+        )
+        for radius in ("240", "54"):
+            self.assertIn(f'<circle cx="800" cy="140" r="{radius}"', day)
+            self.assertIn(f'<circle cx="800" cy="140" r="{radius}"', night)
+        self.assertIn('id="moonGlow"', night)
+        self.assertIn('fill="#f5f0dc"', night)
+        self.assertGreater(night.count("<circle"), 40)
+        # Duplicate inline SVG ids would make one layer use the other layer's
+        # gradients.
+        ids = re.findall(r'id="([^"]+)"', html)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_night_hills_keep_the_ink_caption_legible(self):
+        base = (STATIC / "css/base.css").read_text(encoding="utf-8")
+        ink = re.search(r"--ink:\s*(#[0-9a-fA-F]{6});", base).group(1)
+        html = INDEX.read_text(encoding="utf-8")
+        for gradient in ("hillFarNight", "hillNearNight"):
+            block = re.search(
+                rf'<linearGradient id="{gradient}".*?</linearGradient>',
+                html, re.S)
+            self.assertIsNotNone(block, gradient)
+            colours = re.findall(
+                r'stop-color="(#[0-9a-fA-F]{6})"', block.group(0))
+            self.assertGreaterEqual(len(colours), 2)
+            for colour in colours:
+                self.assertGreaterEqual(
+                    _contrast(ink, colour), 4.5, (gradient, colour))
+
+    def test_backdrop_fades_between_day_and_night_on_the_clock(self):
+        js = (STATIC / "home-view.js").read_text(encoding="utf-8")
+        for line in ("var DAWN_START = 6 * 60;", "var DAWN_END = 7 * 60;",
+                     "var DUSK_START = 19 * 60;", "var DUSK_END = 20 * 60;"):
+            self.assertIn(line, js)
+        self.assertIn("function nightAmount(minutes)", js)
+        self.assertIn("return smoothstep((minutes - DUSK_START) / 60);", js)
+        self.assertIn(
+            "return 1 - smoothstep((minutes - DAWN_START) / 60);", js)
+        self.assertIn("sceneDay.style.opacity = String(1 - night);", js)
+        self.assertIn("sceneNight.style.opacity = String(night);", js)
+        # The sky piggybacks the existing one-second clock; no extra timer.
+        self.assertEqual(js.count("setInterval"), 1)
+        changed = re.search(r"if \(t !== lastTime\) \{(.*?)\n    \}", js, re.S)
+        self.assertIsNotNone(changed)
+        self.assertIn("applySky(t);", changed.group(1))
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        self.assertIn(".scene-layer {", css)
+        self.assertIn(".scene-layer--night { opacity: 0; }", css)
+        self.assertIn(".scene-glow--night {", css)
+        self.assertIn(".house--night {", css)
+
     def test_refresh_slider_is_bounded_to_sixty(self):
         html = INDEX.read_text(encoding="utf-8")
         self.assertRegex(html, r'id="refreshRange"[^>]*min="5"[^>]*max="60"')
@@ -345,6 +425,17 @@ class StaticRuntimeTests(unittest.TestCase):
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
         self.assertNotIn("BATTERY_FILTER_MS", js)
         self.assertNotIn("batteryPowerSamples", js)
+        self.assertIn("batt.hours_to_empty", js)
+        self.assertIn("batt.hours_to_full", js)
+
+    def test_battery_eta_renders_the_mode_estimate(self):
+        js = (STATIC / "home-view.js").read_text(encoding="utf-8")
+        self.assertIn("batt.estimate", js)
+        self.assertIn("root.dataset.estimate", js)
+        for fragment in ("est.mode === \"full\"", 'est.mode === "solar"',
+                         "est.soc_final", "est.solar_end", "est.clock",
+                         '"% by "', "charge_limit_kw"):
+            self.assertIn(fragment, js)
         self.assertIn("batt.hours_to_empty", js)
         self.assertIn("batt.hours_to_full", js)
 

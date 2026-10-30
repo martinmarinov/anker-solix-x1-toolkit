@@ -5,12 +5,13 @@
  *   HomeView.setTimezone(tz) / setDevice(label)
  *   HomeView.render(view) / renderUnavailable(message)
  *   HomeView.startClock() / stopClock()
+ *   HomeView.applySky("HH:MM")   (manual/debug; the clock calls it on the minute)
  *   HomeView.setAlert(message)
  */
 (function () {
   "use strict";
 
-  var root, house, flowLayer;
+  var root, house, flowLayer, sceneDay, sceneNight;
   var els = {};
   var clockTimer = null;
   var timezone = "";
@@ -20,6 +21,11 @@
   var currentView = null;
   var initialized = false;
 
+  var DAWN_START = 6 * 60;
+  var DAWN_END = 7 * 60;
+  var DUSK_START = 19 * 60;
+  var DUSK_END = 20 * 60;
+
   function $(id) { return document.getElementById(id); }
 
   function init() {
@@ -28,6 +34,8 @@
     initialized = true;
     house = $("houseImg");
     flowLayer = $("flowLayer");
+    sceneDay = $("sceneDay");
+    sceneNight = $("sceneNight");
     els = {
       solar: $("vSolar"), grid: $("vGrid"), batt: $("vBatt"), home: $("vHome"),
       gridState: $("gridState"), gridBars: $("gridBars"),
@@ -53,6 +61,7 @@
       document.fonts.ready.then(scheduleLayout).catch(function () {});
     }
     scheduleLayout();
+    applySky(timeFormat().format(new Date()));
   }
 
   function setTimezone(tz) {
@@ -99,6 +108,10 @@
       return "\u2014";
     }
     return Number(value).toFixed(2) + " kWh";
+  }
+
+  function isNum(value) {
+    return value !== null && value !== undefined && isFinite(Number(value));
   }
 
   function fmtDuration(hours) {
@@ -299,6 +312,39 @@
     }
   }
 
+  /* The backdrop follows the same once-a-minute clock tick the drawer uses.
+     Dusk 19:00-20:00 and dawn 06:00-07:00 ease across the hour; outside those
+     windows it is fully day or fully night. Two style writes per minute move
+     the two pixel-aligned layers, so the browser can keep the transition on
+     the compositor. */
+  function clockMinutes(clock) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(clock || "");
+    if (!m) return null;
+    return (Number(m[1]) % 24) * 60 + Number(m[2]);
+  }
+
+  function nightAmount(minutes) {
+    if (minutes >= DUSK_START && minutes < DUSK_END) {
+      return smoothstep((minutes - DUSK_START) / 60);
+    }
+    if (minutes >= DAWN_START && minutes < DAWN_END) {
+      return 1 - smoothstep((minutes - DAWN_START) / 60);
+    }
+    return (minutes >= DUSK_END || minutes < DAWN_START) ? 1 : 0;
+  }
+
+  function applySky(clock) {
+    if (!sceneDay || !sceneNight) return;
+    var minutes = clockMinutes(clock);
+    if (minutes === null) return;
+    var night = nightAmount(minutes);
+    sceneDay.style.opacity = String(1 - night);
+    sceneNight.style.opacity = String(night);
+    if (root) {
+      root.dataset.sky = night >= 1 ? "night" : (night <= 0 ? "day" : "dusk");
+    }
+  }
+
   function applySolarIcon() {
     if (!els.solarIcon) return;
     var solar = currentView && currentView.solar;
@@ -354,17 +400,40 @@
     var socOk = available && soc !== null && soc !== undefined &&
                 isFinite(Number(soc));
     var batt = view.battery || {};
+    var est = batt.estimate && typeof batt.estimate === "object"
+      ? batt.estimate : null;
+    root.dataset.estimate = (est && est.mode) || "unavailable";
+
+    // Old servers (and the first frames of a fresh feed) may not have an
+    // estimate object. Keep the original batt.state + hours_to_* fallback.
     var etaHours = null;
     var etaLabel = "";
-    if (batt.state === "discharging" &&
-        isFinite(Number(batt.hours_to_empty))) {
+    if (est) {
+      if (est.mode === "discharging" && isNum(est.hours)) {
+        etaHours = Number(est.hours);
+        etaLabel = "empty";
+      } else if ((est.mode === "grid" || est.mode === "charging" ||
+                  est.mode === "solar") && isNum(est.hours)) {
+        etaHours = Number(est.hours);
+        etaLabel = "full";
+      }
+    } else if (batt.state === "discharging" &&
+               isNum(batt.hours_to_empty)) {
       etaHours = Number(batt.hours_to_empty);
       etaLabel = "empty";
     } else if (batt.state === "charging" &&
-               isFinite(Number(batt.hours_to_full))) {
+               isNum(batt.hours_to_full)) {
       etaHours = Number(batt.hours_to_full);
       etaLabel = "full";
     }
+
+    var capNote = "";
+    if (est && est.solar && est.solar.capped &&
+        isNum(est.solar.charge_limit_kw)) {
+      capNote = "Charge capped at " +
+        Number(est.solar.charge_limit_kw).toFixed(2) + " kW by the inverter";
+    }
+
     if (els.batteryHero) {
       els.batteryHero.style.setProperty("--soc", socOk ? String(Number(soc)) : "0");
     }
@@ -379,12 +448,21 @@
         els.batterySummary.textContent = "—";
       } else {
         var lines = [fmtKwh(batt.available_kwh)];
-        if (etaHours !== null && isFinite(etaHours)) {
+        if (est && est.mode === "full") {
+          lines.push("Full");
+        } else if (est && est.mode === "solar" && etaHours === null &&
+                   isNum(est.soc_final)) {
+          lines.push(Math.round(Number(est.soc_final)) + "% by " +
+                     (est.solar_end || "18:00"));
+        } else if (etaHours !== null && isFinite(etaHours)) {
           lines.push("~" + fmtDuration(etaHours) +
-                     " · " + etaLabel + " " + clockAfter(etaHours));
+                     " · " + etaLabel + " " +
+                     ((est && est.clock) || clockAfter(etaHours)));
         }
         els.batterySummary.textContent = lines.join("\n");
       }
+      if (capNote) els.batterySummary.title = capNote;
+      else els.batterySummary.removeAttribute("title");
     }
 
     setStatus(status.level || "waiting", status.label || (waiting ? "Waiting for telemetry" : ""));
@@ -427,11 +505,15 @@
 
   function updateClock() {
     applySolarIcon();
-    if (!els.clockTime) return;
     var now = new Date();
     var t = timeFormat().format(now);
+    if (t !== lastTime) {
+      lastTime = t;
+      if (els.clockTime) els.clockTime.textContent = t;
+      applySky(t);
+    }
+    if (!els.clockTime) return;
     var d = dateFormat().format(now).replace(/,/g, "");
-    if (t !== lastTime) { els.clockTime.textContent = t; lastTime = t; }
     if (d !== lastDate) { els.clockDate.textContent = d; lastDate = d; }
   }
 
@@ -583,6 +665,7 @@
     renderUnavailable: renderUnavailable,
     startClock: startClock,
     stopClock: stopClock,
+    applySky: applySky,
     layoutFlows: layoutFlows
   };
 })();

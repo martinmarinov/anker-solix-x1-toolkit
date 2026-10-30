@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -199,6 +200,80 @@ class HomeViewTests(unittest.TestCase):
         self.assertEqual(view["battery"]["state"], "charging")
         self.assertEqual(view["battery"]["hours_to_full"], 5.79)
         self.assertIsNone(view["battery"]["hours_to_empty"])
+
+    def _solar_snapshot(self, ts, **overrides):
+        snap = {
+            "available": True, "ts": ts, "soc": 50,
+            "pp": 4000, "gp": 0, "bp": -700, "lp": 500,
+            "nominal_capacity_kwh": 15, "reserve_soc": 5,
+            "batt_avg_net_kw": 0.7, "load_avg_kw": 0.5,
+            "charge_limit_kw": 6.0, "charge_limit_source": "default_6kw",
+        }
+        snap.update(overrides)
+        return snap
+
+    def test_solar_estimate_uses_site_timezone_and_curve(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(self._solar_snapshot(ts), tz="Europe/London")
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "solar")
+        self.assertAlmostEqual(estimate["hours"], 4.653, places=2)
+        self.assertEqual(estimate["clock"], "15:09")
+        self.assertEqual(view["battery"]["hours_to_full"], 4.65)
+        self.assertIsNone(view["battery"]["hours_to_empty"])
+        self.assertEqual(estimate["solar"]["as_of"], "10:30")
+        self.assertFalse(estimate["solar"]["capped"])
+
+    def test_solar_estimate_respects_site_timezone_window(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(self._solar_snapshot(ts),
+                               tz="America/New_York")
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "charging")
+        self.assertEqual(estimate["reason"], "outside_solar_window")
+        self.assertIsNone(estimate["solar"])
+
+    def test_solar_not_reachable_exposes_soc_and_end(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(self._solar_snapshot(ts, pp=1200),
+                               tz="Europe/London")
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "solar")
+        self.assertIsNone(estimate["hours"])
+        self.assertEqual(estimate["solar_end"], "18:00")
+        self.assertAlmostEqual(estimate["soc_final"], 50.2, places=1)
+        self.assertTrue(estimate["solar"]["reachable"] is False)
+
+    def test_idle_below_50_w_has_no_eta(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(self._solar_snapshot(
+            ts, pp=0, bp=-30, batt_avg_net_kw=-0.03,
+            charge_limit_kw=6.0), tz="Europe/London")
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "idle")
+        self.assertIsNone(estimate["hours"])
+        self.assertIsNone(view["battery"]["hours_to_empty"])
+        self.assertIsNone(view["battery"]["hours_to_full"])
+
+    def test_solar_cap_is_reported(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(self._solar_snapshot(
+            ts, charge_limit_kw=1.0,
+            charge_limit_source="device_attrs.ac_power_limit"),
+            tz="Europe/London")
+        estimate = view["battery"]["estimate"]
+        self.assertTrue(estimate["solar"]["capped"])
+        self.assertEqual(estimate["solar"]["charge_limit_kw"], 1.0)
+        self.assertEqual(estimate["solar"]["charge_limit_source"],
+                         "device_attrs.ac_power_limit")
+
+    def test_estimate_clock_uses_discharge_formula(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(self._solar_snapshot(
+            ts, pp=0, bp=1500, batt_avg_net_kw=-1.5), tz="Europe/London")
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "discharging")
+        self.assertEqual(estimate["clock"], "14:46")
 
 
 if __name__ == "__main__":

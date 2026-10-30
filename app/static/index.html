@@ -64,47 +64,146 @@
 <!-- -------------------------------------------------------------------- app -->
 <section id="appView" class="hide">
   <main id="homeView" class="home-stage"
-        data-available="false" data-stale="false" data-status="waiting"
+        data-available="false" data-stale="false" data-status="waiting" data-sky="day"
         data-solar="unavailable" data-grid="unavailable" data-battery="unavailable"
         data-home="unavailable">
 
     <div class="scene" aria-hidden="true">
-      <svg class="scene-bg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
-        <defs>
-          <linearGradient id="skyDay" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#eaf5fb"/>
-            <stop offset=".58" stop-color="#f7f2e6"/>
-            <stop offset="1" stop-color="#f2e9d7"/>
-          </linearGradient>
-          <linearGradient id="hillFar" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#dbe8d3"/>
-            <stop offset="1" stop-color="#eee9db"/>
-          </linearGradient>
-          <linearGradient id="hillNear" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stop-color="#cfe0c0"/>
-            <stop offset="1" stop-color="#e9e1cd"/>
-          </linearGradient>
-          <radialGradient id="sunGlow" cx=".5" cy=".5" r=".5">
-            <stop offset="0" stop-color="#fde68a" stop-opacity=".58"/>
-            <stop offset=".55" stop-color="#fde68a" stop-opacity=".20"/>
-            <stop offset="1" stop-color="#fde68a" stop-opacity="0"/>
-          </radialGradient>
-        </defs>
-        <rect width="1600" height="900" fill="url(#skyDay)"/>
-        <circle cx="800" cy="140" r="240" fill="url(#sunGlow)"/>
-        <circle cx="800" cy="140" r="54" fill="#f8d37c" opacity=".50"/>
-        <g fill="#ffffff" opacity=".58">
-          <path d="M148 338c-30 0-52-19-52-43 0-25 23-44 52-44 5-27 30-47 60-47 33 0 61 23 67 54 27 2 48 20 48 44 0 24-21 36-47 36H148Z"/>
-          <path d="M1378 388c-27 0-47-17-47-38 0-22 20-39 47-39 4-24 27-42 54-42 30 0 55 21 60 48 24 2 43 18 43 39 0 21-19 32-42 32h-115Z"/>
-        </g>
-        <path d="M0 640 C 220 520 410 540 590 600 C 800 670 950 530 1150 548 C 1330 564 1480 630 1600 606 L 1600 900 L 0 900 Z"
-              fill="url(#hillFar)" opacity=".86"/>
-        <path d="M0 730 C 260 636 445 664 650 700 C 880 740 1020 630 1210 650 C 1400 670 1515 704 1600 692 L 1600 900 L 0 900 Z"
-              fill="url(#hillNear)" opacity=".92"/>
-      </svg>
-      <div class="scene-glow"></div>
-      <img id="houseImg" class="house" src="/static/assets/house.svg"
-           alt="" width="1200" height="590" decoding="async" fetchpriority="high">
+      <!-- Two pixel-aligned scene layers. Their shared clouds, hills and house
+           must keep identical geometry; keep every inline gradient id unique. -->
+      <div id="sceneDay" class="scene-layer scene-layer--day">
+        <svg class="scene-bg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <linearGradient id="skyDay" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#eaf5fb"/>
+              <stop offset=".58" stop-color="#f7f2e6"/>
+              <stop offset="1" stop-color="#f2e9d7"/>
+            </linearGradient>
+            <linearGradient id="hillFar" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#dbe8d3"/>
+              <stop offset="1" stop-color="#eee9db"/>
+            </linearGradient>
+            <linearGradient id="hillNear" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#cfe0c0"/>
+              <stop offset="1" stop-color="#e9e1cd"/>
+            </linearGradient>
+            <radialGradient id="sunGlow" cx=".5" cy=".5" r=".5">
+              <stop offset="0" stop-color="#fde68a" stop-opacity=".58"/>
+              <stop offset=".55" stop-color="#fde68a" stop-opacity=".20"/>
+              <stop offset="1" stop-color="#fde68a" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <rect width="1600" height="900" fill="url(#skyDay)"/>
+          <circle cx="800" cy="140" r="240" fill="url(#sunGlow)"/>
+          <circle cx="800" cy="140" r="54" fill="#f8d37c" opacity=".50"/>
+          <g fill="#ffffff" opacity=".58">
+            <path d="M148 338c-30 0-52-19-52-43 0-25 23-44 52-44 5-27 30-47 60-47 33 0 61 23 67 54 27 2 48 20 48 44 0 24-21 36-47 36H148Z"/>
+            <path d="M1378 388c-27 0-47-17-47-38 0-22 20-39 47-39 4-24 27-42 54-42 30 0 55 21 60 48 24 2 43 18 43 39 0 21-19 32-42 32h-115Z"/>
+          </g>
+          <path d="M0 640 C 220 520 410 540 590 600 C 800 670 950 530 1150 548 C 1330 564 1480 630 1600 606 L 1600 900 L 0 900 Z"
+                fill="url(#hillFar)" opacity=".86"/>
+          <path d="M0 730 C 260 636 445 664 650 700 C 880 740 1020 630 1210 650 C 1400 670 1515 704 1600 692 L 1600 900 L 0 900 Z"
+                fill="url(#hillNear)" opacity=".92"/>
+        </svg>
+        <div class="scene-glow scene-glow--day"></div>
+        <img id="houseImg" class="house" src="/static/assets/house.svg"
+             alt="" width="1200" height="590" decoding="async" fetchpriority="high">
+      </div>
+
+      <div id="sceneNight" class="scene-layer scene-layer--night">
+        <svg class="scene-bg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+          <defs>
+            <linearGradient id="skyNight" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#192a44"/>
+              <stop offset=".58" stop-color="#263b55"/>
+              <stop offset="1" stop-color="#425868"/>
+            </linearGradient>
+            <linearGradient id="hillFarNight" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#a7b8a1"/>
+              <stop offset="1" stop-color="#c5d2bd"/>
+            </linearGradient>
+            <linearGradient id="hillNearNight" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#b3c3a8"/>
+              <stop offset="1" stop-color="#93a78d"/>
+            </linearGradient>
+            <radialGradient id="moonGlow" cx=".5" cy=".5" r=".5">
+              <stop offset="0" stop-color="#cfe2ff" stop-opacity=".58"/>
+              <stop offset=".55" stop-color="#cfe2ff" stop-opacity=".20"/>
+              <stop offset="1" stop-color="#cfe2ff" stop-opacity="0"/>
+            </radialGradient>
+          </defs>
+          <rect width="1600" height="900" fill="url(#skyNight)"/>
+          <g fill="#f5f0dc">
+            <circle cx="1190" cy="91" r="1.6" opacity=".52"/>
+            <circle cx="688" cy="92" r="2.0" opacity=".92"/>
+            <circle cx="633" cy="100" r="1.1" opacity=".69"/>
+            <circle cx="1008" cy="103" r="1.8" opacity=".53"/>
+            <circle cx="198" cy="111" r="1.8" opacity=".54"/>
+            <circle cx="237" cy="116" r="1.7" opacity=".38"/>
+            <circle cx="332" cy="116" r="1.0" opacity=".59"/>
+            <circle cx="1146" cy="122" r="2.1" opacity=".92"/>
+            <circle cx="758" cy="123" r="1.8" opacity=".69"/>
+            <circle cx="521" cy="125" r="1.8" opacity=".82"/>
+            <circle cx="369" cy="139" r="1.2" opacity=".43"/>
+            <circle cx="1170" cy="151" r="1.5" opacity=".48"/>
+            <circle cx="952" cy="171" r="1.7" opacity=".50"/>
+            <circle cx="1276" cy="199" r="1.4" opacity=".66"/>
+            <circle cx="958" cy="210" r="2.4" opacity=".92"/>
+            <circle cx="256" cy="223" r="1.1" opacity=".78"/>
+            <circle cx="488" cy="246" r="2.2" opacity=".92"/>
+            <circle cx="1066" cy="247" r="1.0" opacity=".60"/>
+            <circle cx="1212" cy="267" r="1.6" opacity=".55"/>
+            <circle cx="1469" cy="272" r="1.8" opacity=".45"/>
+            <circle cx="573" cy="286" r="1.6" opacity=".67"/>
+            <circle cx="862" cy="286" r="1.1" opacity=".70"/>
+            <circle cx="887" cy="301" r="1.4" opacity=".60"/>
+            <circle cx="298" cy="313" r="1.6" opacity=".45"/>
+            <circle cx="508" cy="316" r="1.6" opacity=".47"/>
+            <circle cx="409" cy="326" r="1.5" opacity=".52"/>
+            <circle cx="1104" cy="330" r="1.9" opacity=".92"/>
+            <circle cx="1030" cy="338" r="1.2" opacity=".72"/>
+            <circle cx="1433" cy="350" r="1.7" opacity=".46"/>
+            <circle cx="792" cy="372" r="1.6" opacity=".92"/>
+            <circle cx="1366" cy="390" r="1.0" opacity=".38"/>
+            <circle cx="356" cy="408" r="1.6" opacity=".66"/>
+            <circle cx="456" cy="410" r="1.7" opacity=".92"/>
+            <circle cx="1421" cy="414" r="1.6" opacity=".77"/>
+            <circle cx="673" cy="429" r="1.3" opacity=".55"/>
+            <circle cx="1018" cy="437" r="1.5" opacity=".83"/>
+            <circle cx="520" cy="441" r="1.2" opacity=".64"/>
+            <circle cx="135" cy="465" r="1.1" opacity=".58"/>
+            <circle cx="612" cy="468" r="1.8" opacity=".92"/>
+            <circle cx="397" cy="470" r="1.8" opacity=".68"/>
+            <circle cx="1320" cy="481" r="1.2" opacity=".73"/>
+            <circle cx="700" cy="505" r="1.9" opacity=".59"/>
+            <circle cx="707" cy="514" r="1.3" opacity=".60"/>
+            <circle cx="1010" cy="520" r="1.7" opacity=".92"/>
+            <circle cx="1392" cy="521" r="1.4" opacity=".76"/>
+            <circle cx="672" cy="528" r="1.2" opacity=".78"/>
+            <circle cx="1003" cy="534" r="1.2" opacity=".55"/>
+            <circle cx="1457" cy="534" r="1.3" opacity=".86"/>
+            <circle cx="150" cy="536" r="1.7" opacity=".68"/>
+            <circle cx="438" cy="540" r="1.0" opacity=".66"/>
+            <circle cx="202" cy="562" r="1.5" opacity=".82"/>
+            <circle cx="1254" cy="565" r="1.8" opacity=".82"/>
+            <circle cx="1402" cy="597" r="1.0" opacity=".66"/>
+            <circle cx="789" cy="617" r="1.3" opacity=".56"/>
+          </g>
+          <circle cx="800" cy="140" r="240" fill="url(#moonGlow)"/>
+          <circle cx="800" cy="140" r="54" fill="#f7f1da" opacity=".90"/>
+          <g fill="#3e536b" opacity=".58">
+            <path d="M148 338c-30 0-52-19-52-43 0-25 23-44 52-44 5-27 30-47 60-47 33 0 61 23 67 54 27 2 48 20 48 44 0 24-21 36-47 36H148Z"/>
+            <path d="M1378 388c-27 0-47-17-47-38 0-22 20-39 47-39 4-24 27-42 54-42 30 0 55 21 60 48 24 2 43 18 43 39 0 21-19 32-42 32h-115Z"/>
+          </g>
+          <path d="M0 640 C 220 520 410 540 590 600 C 800 670 950 530 1150 548 C 1330 564 1480 630 1600 606 L 1600 900 L 0 900 Z"
+                fill="url(#hillFarNight)" opacity=".86"/>
+          <path d="M0 730 C 260 636 445 664 650 700 C 880 740 1020 630 1210 650 C 1400 670 1515 704 1600 692 L 1600 900 L 0 900 Z"
+                fill="url(#hillNearNight)" opacity=".92"/>
+        </svg>
+        <div class="scene-glow scene-glow--night"></div>
+        <img class="house house--night" src="/static/assets/house-night.svg"
+             alt="" width="1200" height="590" decoding="async">
+      </div>
     </div>
 
     <svg id="flowLayer" class="flow-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
