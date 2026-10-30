@@ -135,11 +135,14 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         estimate = json.loads(payload)["view"]["battery"]["estimate"]
         self.assertEqual(estimate["mode"], "solar")
-        self.assertAlmostEqual(estimate["hours"], 4.653, places=2)
-        self.assertEqual(estimate["clock"], "15:09")
+        self.assertAlmostEqual(estimate["hours"], 1.975, places=2)
+        self.assertEqual(estimate["clock"], "12:29")
         self.assertEqual(estimate["eta"]["kind"], "to_full")
-        self.assertEqual(estimate["eta"]["label"], "15:09")
+        self.assertEqual(estimate["eta"]["label"], "12:29")
         self.assertFalse(estimate["solar"]["capped"])
+        self.assertAlmostEqual(estimate["solar"]["net_kw_at_t0"], 3.5,
+                               places=2)
+        self.assertEqual(estimate["solar"]["low"]["label"], "15:09")
         self.assertEqual(estimate["solar"]["observed_source"], "instant")
 
     def test_live_uses_the_averaged_pv_for_the_solar_estimate(self):
@@ -163,8 +166,8 @@ class ServerApiTests(unittest.TestCase):
         view = json.loads(payload)["view"]
         estimate = view["battery"]["estimate"]
         self.assertEqual(estimate["mode"], "solar")
-        self.assertAlmostEqual(estimate["hours"], 4.653, places=2)
-        self.assertEqual(estimate["clock"], "15:09")
+        self.assertAlmostEqual(estimate["hours"], 1.975, places=2)
+        self.assertEqual(estimate["clock"], "12:29")
         self.assertEqual(estimate["solar"]["observed_kw"], 4.0)
         self.assertEqual(estimate["solar"]["observed_source"], "avg")
         self.assertEqual(view["solar"]["w"], 1000)
@@ -232,8 +235,9 @@ class ServerApiTests(unittest.TestCase):
         estimate = view["battery"]["estimate"]
         self.assertEqual(estimate["mode"], "solar")
         self.assertEqual(estimate["solar"]["as_of"], "06:30")
-        self.assertEqual(estimate["solar_end"], "19:00")
-        self.assertEqual(estimate["eta"]["at"], "19:00")
+        self.assertIsNone(estimate["solar_end"])
+        self.assertEqual(estimate["eta"]["kind"], "to_full")
+        self.assertEqual(estimate["solar"]["low"]["at"], "19:00")
 
     def test_live_uses_the_resolved_location_window(self):
         ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()

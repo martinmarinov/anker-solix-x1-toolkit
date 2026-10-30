@@ -9,11 +9,12 @@ has no Anker dependency, which keeps it easy to unit-test.
 The battery ETA is delegated to :mod:`battery_estimate`, which uses the
 ten-minute signed average for the state, the ten-minute averaged PV (with an
 instantaneous fallback) and the instantaneous grid readings for the solar-curve
-branch.  Everything the cards display (battery watts/state, flows, solar/grid/home
-and the shimmer) stays on instantaneous telemetry; only ``battery.estimate``, its
-``hours_to_*`` aliases and the ``batt_avg_*``/``load_avg_kw``/``solar_avg_kw``
-diagnostics use the averages, and those diagnostics are never rendered as card
-power.
+branch.  The expected curve is the headline; the old 0.5-risk result is carried
+under ``solar.low``.  Everything the cards display (battery watts/state, flows,
+solar/grid/home and the shimmer) stays on instantaneous telemetry; only
+``battery.estimate``, its ``hours_to_*`` aliases and the
+``batt_avg_*``/``load_avg_kw``/``solar_avg_kw`` diagnostics use the averages,
+and those diagnostics are never rendered as card power.
 """
 from __future__ import annotations
 

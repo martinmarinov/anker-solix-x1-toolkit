@@ -5,14 +5,16 @@ Mode rules (agreed with the user):
 * signed ten-minute average battery power decides idle/charge/discharge;
 * below 50 W discharge is idle, with no ETA;
 * charging with more than 50 W grid import uses the legacy linear formula;
-* charging from solar inside the supplied sunrise/sunset window uses the
-  solar curve scaled from ten-minute averaged PV, with an instantaneous
-  fallback;
+* charging from solar inside the supplied sunrise/sunset window uses a
+  half-sine anchored at the ten-minute averaged PV, with the old 0.5-risk
+  curve kept as the low case;
 * outside that window, or with no usable solar, fall back to linear.
 
 The solar branch subtracts a constant house load and clips the charge at the
 runtime inverter limit.  The limit is never inline in the formula; it comes
 from the live snapshot (realtime EMS -> device attributes -> 6 kW fallback).
+The expected curve is the headline; ``solar.low`` preserves the conservative
+0.5-risk outcome.
 """
 from __future__ import annotations
 
@@ -22,6 +24,7 @@ from datetime import datetime
 from eta import clock_at, format_eta_label, local_hour
 from limits import FALLBACK_MAX_CHARGE_KW
 from solar_forecast import (
+    SOLAR_EXPECTED_RISK_FACTOR,
     SOLAR_MAX_PEAK_MULTIPLIER,
     SOLAR_MIN_OBS_W,
     SOLAR_RISK_FACTOR,
@@ -29,6 +32,8 @@ from solar_forecast import (
     format_hour,
     create_solar_curve,
     resolve_solar_window,
+    shape,
+    solar_power_w,
 )
 
 BATTERY_IDLE_W = 50.0
@@ -158,9 +163,15 @@ def _negative_energy(curve, start: float, end: float, load_kw: float) -> float:
     """Integral of max(0, load_kw - P_solar(t)/1000) over [start, end]."""
     if end <= start or load_kw <= 0:
         return 0.0
-    gross = energy_kwh(curve, start, end)
-    surplus = _positive_energy(curve, start, end, load_kw)
-    return max(0.0, load_kw * (end - start) - gross + surplus)
+    # The gross energy helper clamps to the curve window; clamp the load term
+    # to the same interval so an interval outside daylight cannot over-count.
+    lo = max(start, curve.start_hour)
+    hi = min(end, curve.end_hour)
+    if hi <= lo:
+        return 0.0
+    gross = energy_kwh(curve, lo, hi)
+    surplus = _positive_energy(curve, lo, hi, load_kw)
+    return max(0.0, load_kw * (hi - lo) - gross + surplus)
 
 
 def _crossing_afternoon(curve, load_kw: float) -> float | None:
@@ -209,6 +220,7 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
     t1 = _crossing_morning(curve, load_kw)
     remaining = energy_kwh(curve, t0, curve.end_hour)
     peak_kw = curve.peak_w / 1000.0
+    power_at_t0_kw = solar_power_w(curve, t0) / 1000.0
 
     if t2 is None or t2 <= t0:
         e_max = 0.0
@@ -224,11 +236,16 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
         "needed_kwh": round(q_ac, 2),
         "load_kw": round(load_kw, 3),
         "peak_kw": round(peak_kw, 3),
+        "power_kw_at_t0": round(power_at_t0_kw, 3),
+        "net_kw_at_t0": round(power_at_t0_kw - load_kw, 3),
+        "batt_avg_kw": round(observed_rate_kw, 3),
         "observed_kw": round(observed_kw, 3),
         "observed_source": observed_source,
         "risk_factor": curve.risk_factor,
         "reachable": bool(e_max + 1e-6 >= q_ac),
         "capped": bool(e_max + 1e-6 < uncapped_max),
+        "charge_until": None,
+        "soc_peak": round(soc, 1),
         "charge_limit_kw": round(cap_kw, 3),
         "charge_limit_source": cap_source,
     }
@@ -248,6 +265,8 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
             t_full = (lo + hi) / 2.0
         hours = max(0.0, t_full - t0)
         solar["solar_end"] = None
+        solar["charge_until"] = format_hour(t_full)
+        solar["soc_peak"] = 100.0
         return _result(
             mode="solar", phase="charging", source="solar",
             rate_kw=observed_rate_kw, hours=hours, now=now, now_hour=t0,
@@ -257,7 +276,14 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
     e_final_dc = (efficiency * e_plus_capped(curve.end_hour)
                   - _negative_energy(curve, t0, curve.end_hour, load_kw)
                   / efficiency)
-    soc_final = _clamp(soc + e_final_dc / nominal * 100.0, reserve, 100.0)
+    low_clamp = min(reserve, soc)
+    soc_final = _clamp(soc + e_final_dc / nominal * 100.0, low_clamp, 100.0)
+    if t2 is not None and t2 > t0:
+        solar["charge_until"] = format_hour(t2)
+        e_peak_dc = (efficiency * e_plus_capped(t2)
+                     - _negative_energy(curve, t0, t2, load_kw) / efficiency)
+        peak_soc = _clamp(soc + e_peak_dc / nominal * 100.0, low_clamp, 100.0)
+        solar["soc_peak"] = round(max(soc, peak_soc), 1)
     solar_end = format_hour(curve.end_hour)
     solar["solar_end"] = solar_end
     solar["soc_final"] = round(soc_final, 1)
@@ -267,6 +293,21 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
         soc_final=round(soc_final, 1), solar_end=solar_end, solar=solar,
         reason="solar_curve", eta_kind="to_soc",
         eta_soc=round(soc_final, 1), eta_at=solar_end)
+
+
+def _low_payload(result: dict) -> dict:
+    """The conservative curve's outcome, nested under ``solar.low``."""
+    solar = result.get("solar") or {}
+    eta = result.get("eta") or {}
+    return {
+        "risk_factor": solar.get("risk_factor"),
+        "kind": eta.get("kind"),
+        "hours": eta.get("hours"),
+        "clock": eta.get("clock"),
+        "label": eta.get("label"),
+        "soc": eta.get("soc"),
+        "at": eta.get("at"),
+    }
 
 
 def estimate_battery(*, soc, nominal_kwh, reserve_soc,
@@ -385,14 +426,18 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
 
     load_kw = _number(load_avg_kw)
     if load_kw is None:
-        load_kw = (solar_instant + grid_in - grid_out - max(0.0, b_w)) / 1000.0
+        load_kw = (solar_instant + grid_in - grid_out - b_w) / 1000.0
+        if load_kw <= 0:
+            load_kw = max(0.0, _number(home_w) or 0.0) / 1000.0
     load_kw = max(0.0, load_kw)
 
+    observed_kw = solar_obs_w / 1000.0
+    max_peak = SOLAR_MAX_PEAK_MULTIPLIER
     try:
         curve = create_solar_curve(
             solar_obs_w, hour,
-            risk_factor=SOLAR_RISK_FACTOR,
-            max_peak_multiplier=SOLAR_MAX_PEAK_MULTIPLIER,
+            risk_factor=SOLAR_EXPECTED_RISK_FACTOR,
+            max_peak_multiplier=max_peak,
             start_hour=solar_start_hour, end_hour=solar_end_hour)
     except ValueError:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
@@ -401,13 +446,47 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
                        reason="invalid_solar_observation",
                        eta_kind="to_full" if hours is not None else "none")
 
+    # The expected curve is anchored at the observation.  Two edge cases can
+    # still make it show a discharge while the battery is measurably charging:
+    # the 2.5x peak cap binds near sunrise/sunset, or the averaged load
+    # disagrees with the averaged battery.  Reconcile the load with the
+    # measured rate and lift the cap until the curve passes through the
+    # observation, so the headline cannot contradict the live charge state.
+    if b_w > 0 and solar_power_w(curve, hour) / 1000.0 <= load_kw:
+        load_eff = max(0.0, observed_kw - rate_kw)
+        if load_eff < load_kw:
+            load_kw = load_eff
+        unit = shape(hour, solar_start_hour, solar_end_hour)
+        if unit > 0:
+            needed_multiplier = 1.0 / unit
+            if needed_multiplier > max_peak + 1e-9:
+                max_peak = needed_multiplier
+                curve = create_solar_curve(
+                    solar_obs_w, hour,
+                    risk_factor=SOLAR_EXPECTED_RISK_FACTOR,
+                    max_peak_multiplier=max_peak,
+                    start_hour=solar_start_hour, end_hour=solar_end_hour)
+
+    low_curve = create_solar_curve(
+        solar_obs_w, hour,
+        risk_factor=SOLAR_RISK_FACTOR,
+        max_peak_multiplier=SOLAR_MAX_PEAK_MULTIPLIER,
+        start_hour=solar_start_hour, end_hour=solar_end_hour)
+
     cap = _number(charge_limit_kw)
     if cap is None or cap <= 0:
         cap = FALLBACK_MAX_CHARGE_KW
         charge_limit_source = "default_6kw"
-    return _solar_estimate(
+
+    expected = _solar_estimate(
         curve=curve, t0=hour, soc=soc, nominal=nominal, reserve=reserve,
         load_kw=load_kw, cap_kw=cap, cap_source=charge_limit_source,
         efficiency=efficiency, observed_rate_kw=rate_kw,
-        observed_kw=solar_obs_w / 1000.0, observed_source=observed_source,
-        now=now)
+        observed_kw=observed_kw, observed_source=observed_source, now=now)
+    low = _solar_estimate(
+        curve=low_curve, t0=hour, soc=soc, nominal=nominal, reserve=reserve,
+        load_kw=load_kw, cap_kw=cap, cap_source=charge_limit_source,
+        efficiency=efficiency, observed_rate_kw=rate_kw,
+        observed_kw=observed_kw, observed_source=observed_source, now=now)
+    expected["solar"]["low"] = _low_payload(low)
+    return expected

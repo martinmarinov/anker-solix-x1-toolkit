@@ -12,8 +12,11 @@ from battery_estimate import (  # noqa: E402
     ETA_KINDS,
     PHASES,
     SOURCES,
+    _negative_energy,
+    _solar_estimate,
     estimate_battery,
 )
+from solar_forecast import create_solar_curve  # noqa: E402
 
 NOW = datetime(2026, 7, 1, 10, 30)
 
@@ -105,44 +108,60 @@ class SolarTests(unittest.TestCase):
         self.assertEqual(result["source"], "solar")
         self.assertIsNone(result["hours"])
         self.assertEqual(result["eta"]["kind"], "to_soc")
-        self.assertEqual(result["eta"]["soc"], 50.2)
+        self.assertEqual(result["eta"]["soc"], 74.8)
         self.assertEqual(result["eta"]["at"], "18:00")
         self.assertIsNone(result["eta"]["hours"])
         self.assertEqual(result["solar_end"], "18:00")
-        self.assertAlmostEqual(result["soc_final"], 50.2, places=1)
+        self.assertAlmostEqual(result["soc_final"], 74.8, places=1)
         self.assertFalse(result["solar"]["reachable"])
-        self.assertAlmostEqual(result["solar"]["charge_kwh"], 0.7, places=1)
+        self.assertAlmostEqual(result["solar"]["charge_kwh"], 4.0, places=1)
         self.assertAlmostEqual(result["solar"]["needed_kwh"], 7.89, places=1)
+        # The old 0.5-risk number is preserved as the low case.
+        self.assertEqual(result["solar"]["low"]["kind"], "to_soc")
+        self.assertAlmostEqual(result["solar"]["low"]["soc"], 50.2, places=1)
+        self.assertEqual(result["solar"]["low"]["at"], "18:00")
 
     def test_4000_w_uncapped(self):
         result = estimate(solar_w=4000, charge_limit_kw=None)
         self.assertEqual(result["mode"], "solar")
-        self.assertAlmostEqual(result["hours"], 4.653, places=2)
-        self.assertEqual(result["clock"], "15:09")
+        self.assertAlmostEqual(result["hours"], 1.975, places=2)
+        self.assertEqual(result["clock"], "12:29")
         self.assertEqual(result["eta"]["kind"], "to_full")
-        self.assertEqual(result["eta"]["label"], "15:09")
+        self.assertEqual(result["eta"]["label"], "12:29")
         self.assertFalse(result["solar"]["capped"])
         self.assertEqual(result["solar"]["charge_limit_kw"], 6.0)
         self.assertEqual(result["solar"]["charge_limit_source"], "default_6kw")
+        self.assertAlmostEqual(result["solar"]["power_kw_at_t0"], 4.0, places=3)
+        self.assertAlmostEqual(result["solar"]["net_kw_at_t0"], 3.5, places=3)
+        self.assertEqual(result["solar"]["charge_until"], "12:29")
+        self.assertAlmostEqual(result["solar"]["soc_peak"], 100.0, places=1)
+        self.assertEqual(result["solar"]["low"]["kind"], "to_full")
+        self.assertAlmostEqual(result["solar"]["low"]["hours"], 4.653, places=2)
+        self.assertEqual(result["solar"]["low"]["label"], "15:09")
 
     def test_cap_15_changes_the_completion_time(self):
         result = estimate(solar_w=4000, charge_limit_kw=1.5,
                           charge_limit_source="realtime.ems_second.mcp")
         self.assertTrue(result["solar"]["reachable"])
-        self.assertAlmostEqual(result["hours"], 5.695, places=2)
-        self.assertEqual(result["clock"], "16:12")
-        self.assertEqual(result["eta"]["label"], "16:12")
+        self.assertAlmostEqual(result["hours"], 5.263, places=2)
+        self.assertEqual(result["clock"], "15:46")
+        self.assertEqual(result["eta"]["label"], "15:46")
         self.assertTrue(result["solar"]["capped"])
         self.assertEqual(result["solar"]["charge_limit_source"],
                          "realtime.ems_second.mcp")
+        self.assertAlmostEqual(result["solar"]["low"]["hours"], 5.695, places=2)
+        self.assertEqual(result["solar"]["low"]["label"], "16:12")
 
     def test_cap_10_is_not_enough(self):
         result = estimate(solar_w=4000, charge_limit_kw=1.0,
                           charge_limit_source="device_attrs.ac_power_limit")
         self.assertFalse(result["solar"]["reachable"])
         self.assertEqual(result["solar_end"], "18:00")
-        self.assertAlmostEqual(result["soc_final"], 86.5, places=1)
+        self.assertAlmostEqual(result["soc_final"], 92.1, places=1)
         self.assertTrue(result["solar"]["capped"])
+        self.assertEqual(result["solar"]["charge_until"], "17:38")
+        self.assertAlmostEqual(result["solar"]["soc_peak"], 92.8, places=1)
+        self.assertAlmostEqual(result["solar"]["low"]["soc"], 86.5, places=1)
 
     def test_cap_zero_or_negative_falls_back_to_6kw(self):
         for cap in (0, -1):
@@ -155,7 +174,7 @@ class SolarTests(unittest.TestCase):
     def test_high_cap_does_not_bind(self):
         result = estimate(solar_w=4000, charge_limit_kw=8.0)
         self.assertFalse(result["solar"]["capped"])
-        self.assertAlmostEqual(result["hours"], 4.653, places=2)
+        self.assertAlmostEqual(result["hours"], 1.975, places=2)
 
     def test_rate_is_observed_battery_rate(self):
         result = estimate(solar_w=4000, battery_avg_net_w=700)
@@ -168,20 +187,100 @@ class SolarTests(unittest.TestCase):
                           battery_avg_net_w=700, home_w=500)
         self.assertAlmostEqual(result["solar"]["load_kw"], 3.3, places=3)
 
+    def test_load_fallback_uses_home_w_when_the_balance_is_zero(self):
+        result = estimate(solar_w=700, load_avg_kw=None,
+                          battery_avg_net_w=700, home_w=500)
+        self.assertAlmostEqual(result["solar"]["load_kw"], 0.5, places=3)
+
+
+class ConsistencyTests(unittest.TestCase):
+    def test_screenshot_sunset_soc_does_not_contradict_charging(self):
+        result = estimate(
+            soc=87.333, battery_net_w=810, battery_avg_net_w=460,
+            solar_w=1660, solar_avg_kw=1.66, home_w=850, load_avg_kw=1.20,
+            now_hour=11 + 43 / 60,
+            now_dt=datetime(2026, 10, 30, 11, 43),
+            solar_start_hour=6 + 51 / 60,
+            solar_end_hour=16 + 37 / 60)
+        self.assertEqual(result["mode"], "solar")
+        self.assertGreater(result["solar"]["net_kw_at_t0"], 0)
+        self.assertAlmostEqual(result["solar"]["batt_avg_kw"], 0.46, places=2)
+        self.assertEqual(result["eta"]["kind"], "to_soc")
+        self.assertAlmostEqual(result["eta"]["soc"], 82.0, places=1)
+        self.assertEqual(result["eta"]["at"], "16:37")
+        self.assertEqual(result["solar"]["charge_until"], "14:06")
+        self.assertAlmostEqual(result["solar"]["soc_peak"], 91.9, places=1)
+        self.assertAlmostEqual(result["solar"]["low"]["soc"], 64.3, places=1)
+        self.assertEqual(result["solar"]["low"]["at"], "16:37")
+        # This is the case that needs the "under assumed load" caption note.
+        self.assertLess(result["eta"]["soc"], 87.333)
+
+    def test_zero_load_never_discharges(self):
+        result = estimate(
+            soc=87.333, battery_avg_net_w=460, solar_w=1660,
+            solar_avg_kw=1.66, load_avg_kw=0.0, now_hour=11 + 43 / 60,
+            solar_start_hour=6 + 51 / 60,
+            solar_end_hour=16 + 37 / 60)
+        self.assertEqual(result["mode"], "solar")
+        self.assertEqual(result["eta"]["kind"], "to_full")
+        self.assertGreater(result["solar"]["net_kw_at_t0"], 0)
+
+    def test_guard_reconciles_a_load_above_the_derated_pv(self):
+        result = estimate(
+            soc=87.333, battery_avg_net_w=460, solar_w=1660,
+            solar_avg_kw=1.66, load_avg_kw=2.0, now_hour=11 + 43 / 60,
+            solar_start_hour=6 + 51 / 60,
+            solar_end_hour=16 + 37 / 60)
+        self.assertGreater(result["solar"]["net_kw_at_t0"], 0)
+        self.assertAlmostEqual(result["solar"]["load_kw"], 1.2, places=3)
+
+    def test_guard_reanchors_the_curve_when_the_peak_cap_binds(self):
+        result = estimate(solar_w=4000, battery_avg_net_w=700,
+                          load_avg_kw=1.6, now_hour=7.5,
+                          now_dt=datetime(2026, 7, 1, 7, 30))
+        self.assertGreater(result["solar"]["net_kw_at_t0"], 0)
+        self.assertAlmostEqual(result["solar"]["power_kw_at_t0"], 4.0,
+                               places=3)
+
+    def test_low_soc_is_not_raised_to_reserve(self):
+        curve = create_solar_curve(400, 10.5, risk_factor=1.0,
+                                   start_hour=7.0, end_hour=18.0)
+        result = _solar_estimate(
+            curve=curve, t0=10.5, soc=2.0, nominal=15.0, reserve=5.0,
+            load_kw=2.0, cap_kw=6.0, cap_source="default_6kw",
+            efficiency=0.95, observed_rate_kw=0.7, observed_kw=0.4,
+            observed_source="instant")
+        self.assertAlmostEqual(result["soc_final"], 2.0, places=1)
+
+    def test_negative_energy_ignores_time_outside_the_window(self):
+        curve = create_solar_curve(4000, 10.5, risk_factor=1.0,
+                                   start_hour=7.0, end_hour=18.0)
+        self.assertEqual(_negative_energy(curve, 20.0, 22.0, 1.0), 0.0)
+
+    def test_higher_pv_never_lowers_the_expected_sunset_soc(self):
+        low = estimate(solar_w=1000, load_avg_kw=0.5)
+        high = estimate(solar_w=1200, load_avg_kw=0.5)
+        self.assertGreaterEqual(high["soc_final"], low["soc_final"])
+
+    def test_higher_load_never_raises_the_expected_sunset_soc(self):
+        low = estimate(solar_w=1200, load_avg_kw=0.5)
+        high = estimate(solar_w=1200, load_avg_kw=0.8)
+        self.assertLessEqual(high["soc_final"], low["soc_final"])
+
 
 class AveragedSolarTests(unittest.TestCase):
     def test_average_replaces_instant_for_the_curve(self):
         result = estimate(solar_w=1000, solar_avg_kw=4.0)
         self.assertEqual(result["mode"], "solar")
-        self.assertAlmostEqual(result["hours"], 4.653, places=2)
-        self.assertEqual(result["clock"], "15:09")
+        self.assertAlmostEqual(result["hours"], 1.975, places=2)
+        self.assertEqual(result["clock"], "12:29")
         self.assertEqual(result["solar"]["observed_kw"], 4.0)
         self.assertEqual(result["solar"]["observed_source"], "avg")
 
     def test_average_wins_over_an_instant_spike(self):
         result = estimate(solar_w=4000, solar_avg_kw=1.2)
         self.assertEqual(result["eta"]["kind"], "to_soc")
-        self.assertAlmostEqual(result["soc_final"], 50.2, places=1)
+        self.assertAlmostEqual(result["soc_final"], 74.8, places=1)
         self.assertEqual(result["solar"]["observed_kw"], 1.2)
         self.assertEqual(result["solar"]["observed_source"], "avg")
 
@@ -194,11 +293,11 @@ class AveragedSolarTests(unittest.TestCase):
     def test_average_can_enable_solar_when_instant_is_zero(self):
         result = estimate(solar_w=0, solar_avg_kw=4.0)
         self.assertEqual(result["mode"], "solar")
-        self.assertAlmostEqual(result["hours"], 4.653, places=2)
+        self.assertAlmostEqual(result["hours"], 1.975, places=2)
 
     def test_missing_average_falls_back_to_instant(self):
         result = estimate(solar_w=4000, solar_avg_kw=None)
-        self.assertAlmostEqual(result["hours"], 4.653, places=2)
+        self.assertAlmostEqual(result["hours"], 1.975, places=2)
         self.assertEqual(result["solar"]["observed_source"], "instant")
 
     def test_numeric_string_average_is_accepted(self):
@@ -210,7 +309,7 @@ class AveragedSolarTests(unittest.TestCase):
         for bad in (float("nan"), float("inf"), "bad"):
             result = estimate(solar_w=4000, solar_avg_kw=bad)
             self.assertEqual(result["solar"]["observed_source"], "instant")
-            self.assertAlmostEqual(result["hours"], 4.653, places=2)
+            self.assertAlmostEqual(result["hours"], 1.975, places=2)
 
     def test_negative_average_clamps_to_zero(self):
         result = estimate(solar_w=4000, solar_avg_kw=-1.0)
@@ -340,6 +439,15 @@ class SchemaTests(unittest.TestCase):
             self.assertIn(result["source"], SOURCES, name)
             self.assertEqual(result["eta"]["clock"], result["clock"], name)
             self.assertEqual(result["eta"]["hours"], result["hours"], name)
+            if result["mode"] == "solar":
+                self.assertEqual(
+                    set(result["solar"]["low"]),
+                    {"risk_factor", "kind", "hours", "clock", "label",
+                     "soc", "at"}, name)
+                self.assertAlmostEqual(
+                    result["solar"]["low"]["risk_factor"], 0.5, name)
+                self.assertAlmostEqual(
+                    result["solar"]["risk_factor"], 1.0, name)
 
     def test_every_eta_kind_matches_its_time_fields(self):
         for name, kwargs in self.cases():

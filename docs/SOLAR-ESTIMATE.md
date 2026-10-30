@@ -105,16 +105,21 @@ estimated values.
 ```
 W      = E - S
 s(t)   = sin(pi * (t - S) / W)                  inside S..E, else 0
-P_peak = 0.5 * min(P̄_obs / s(t0), 2.5 * P̄_obs)
+P_exp  = min(P̄_obs / s(t0), 2.5 * P̄_obs)        expected, anchored at t0
+P_low  = 0.5 * min(P̄_obs / s(t0), 2.5 * P̄_obs)  conservative low case
 P(t)   = P_peak * s(t)                          W
 E(u,v) = P_peak * W / (1000 * pi) *
          [cos(pi*(A-S)/W) - cos(pi*(B-S)/W)]     kWh
 ```
 
 `A = max(S,u)`, `B = min(E,v)`. `P̄_obs` is the ten-minute averaged PV in W (with the
-instantaneous reading as fallback). The 2.5× cap is applied before the 0.5 risk factor,
-matching the source model. `SOLAR_RISK_FACTOR` and `SOLAR_MAX_PEAK_MULTIPLIER` are named
-constants in `app/solar_forecast.py`; there is no UI or environment override.
+instantaneous reading as fallback). The expected curve anchors at the observation, so at
+`t0` it equals `P̄_obs` unless the 2.5× cap binds. The observation already contains today's
+cloudiness; the old 0.5 factor modelled a different, twice-as-cloudy day and is now kept as
+`solar.low`, not used for the headline. The cap is applied before the risk factor in both
+curves. `SOLAR_EXPECTED_RISK_FACTOR`, `SOLAR_RISK_FACTOR` and
+`SOLAR_MAX_PEAK_MULTIPLIER` are named constants in `app/solar_forecast.py`; there is no UI
+or environment override.
 
 The window is resolved once per estimate. `app/solar_forecast.py` stores `start_hour` and
 `end_hour` on each `SolarCurve`, and every energy helper uses those fields rather than the
@@ -131,11 +136,12 @@ time-weighted trapezoidal mean over that same window, using the same cutoff and 
 the battery average; an interval with a missing PV endpoint contributes nothing. It is
 rounded to three decimals.
 
-The estimator treats the mean as the PV value at `t0` and scales the half-sine through
-`s(t0)` exactly as before. That keeps steady-state numbers unchanged, but a rising morning
-mean is slightly below the instantaneous value at `t0`, and a falling afternoon mean is
-slightly above it. The phase bias around sunrise and sunset is accepted; only the observation
-is averaged, not the curve.
+The estimator treats the mean as the PV value at `t0` and anchors the expected half-sine
+through `s(t0)`; the low curve applies the same treatment with the 0.5 factor. That keeps
+steady-state numbers consistent with the observation, but a rising morning mean is slightly
+below the instantaneous value at `t0`, and a falling afternoon mean is slightly above it.
+The phase bias around sunrise and sunset is accepted; only the observation is averaged, not
+the curve.
 
 Fallback rules:
 
@@ -160,7 +166,15 @@ L_kw = load_avg_kw
 ```
 
 `load_avg_kw` is the same ten-minute household average the battery average uses. If it is
-missing, the energy-balance fallback is approximate and labelled by the diagnostics.
+missing, the instantaneous energy balance is tried first; if that balance is zero or
+negative, the instantaneous `home_w` reading is used. Both fallbacks are approximate and are
+labelled by the diagnostics.
+
+If the logged charging state and the anchored curve disagree at `t0` (sensor disagreement,
+or the 2.5× cap binding near sunrise/sunset), the estimator reconciles the assumed load with
+the measured battery rate and re-anchors the current PV. The headline therefore cannot show
+a discharge while the battery is measurably charging. This is a defensive path; it does not
+fire for the 11:43 screenshot case.
 
 The runtime charge cap `C_kw` clips the surplus. It is never a value in the formula:
 
@@ -232,12 +246,17 @@ Q_ac = Q_dc / 0.95
 ```
 
 If `E_plus_capped(t0, t2)` is at least `Q_ac`, we bisect for the time the battery reaches
-100 % and report `~4h 39m · full 15:09`. Here `t2` is the afternoon time when solar falls
-back to the house load.
+100 % and report `~1h 59m · full 12:29`. Here `t2` is the afternoon time when solar falls
+back to the house load. The same calculation runs for the low curve; its result is preserved
+under `solar.low` and shown in the caption tooltip.
 
-If it is not enough, we integrate to the effective sunset `E` and report the SOC there plus
-the end time, for example `87% by 18:00` for the fallback window. The final SOC is clamped at
-the reserve, because the real device would stop discharging there.
+If it is not enough, we integrate to the effective sunset `E` and report the expected SOC
+there plus the end time, for example `82% by 16:37`. `solar.charge_until` and
+`solar.soc_peak` describe the peak before the afternoon decline, so a charging battery can
+legitimately end below its current SOC: it charges to ~92 % by 14:06, then the constant house
+load exceeds the falling PV. The caption adds a small `under assumed load` note in that case.
+The final SOC is clamped at `min(reserve, soc)`, because the real device would stop
+discharging at the reserve and a SOC already below it must not be raised.
 
 Grid and linear charging continue to use the legacy deficit, which includes the reserve.
 That preserves the existing numbers (`8.68 h` in the regression fixture) and is intentional:
@@ -258,32 +277,46 @@ name; `phase` and `source` describe the averaged estimate that produced the time
   "phase": "charging",
   "source": "solar",
   "rate_kw": 0.7,
-  "hours": 4.653,
-  "clock": "15:09",
+  "hours": 1.975,
+  "clock": "12:29",
   "soc_final": null,
   "solar_end": null,
   "eta": {
     "kind": "to_full",
-    "hours": 4.653,
-    "clock": "15:09",
-    "label": "15:09",
+    "hours": 1.975,
+    "clock": "12:29",
+    "label": "12:29",
     "soc": null,
     "at": null
   },
   "solar": {
     "as_of": "10:30",
-    "remaining_kwh": 12.82,
-    "charge_kwh": 8.8,
+    "remaining_kwh": 25.65,
+    "charge_kwh": 20.89,
     "needed_kwh": 7.89,
     "load_kw": 0.5,
-    "peak_kw": 2.377,
+    "peak_kw": 4.755,
+    "power_kw_at_t0": 4.0,
+    "net_kw_at_t0": 3.5,
+    "batt_avg_kw": 0.7,
     "observed_kw": 4.0,
     "observed_source": "avg",
-    "risk_factor": 0.5,
+    "risk_factor": 1.0,
     "reachable": true,
     "capped": false,
+    "charge_until": "12:29",
+    "soc_peak": 100.0,
     "charge_limit_kw": 6.0,
-    "charge_limit_source": "default_6kw"
+    "charge_limit_source": "default_6kw",
+    "low": {
+      "risk_factor": 0.5,
+      "kind": "to_full",
+      "hours": 4.653,
+      "clock": "15:09",
+      "label": "15:09",
+      "soc": null,
+      "at": null
+    }
   },
   "reason": "solar_curve"
 }
@@ -293,6 +326,13 @@ name; `phase` and `source` describe the averaged estimate that produced the time
 `to_empty`/`to_full` render the duration plus `eta.label`; `to_soc` renders
 `{eta.soc}% by {eta.at}`; `at_full`/`at_empty` render `Full`/`Empty`. For `to_soc`, the
 legacy top-level `soc_final` and `solar_end` remain set and mirror `eta.soc`/`eta.at`.
+
+`solar.risk_factor` is `1.0` for the headline curve. `solar.low` repeats the ETA shape
+(`risk_factor`, `kind`, `hours`, `clock`, `label`, `soc`, `at`) for the 0.5 curve. The
+diagnostics also expose `power_kw_at_t0` (modeled PV at the observation), `net_kw_at_t0`
+(modeled PV minus the assumed load), `batt_avg_kw` (measured battery average),
+`charge_until` (when the battery stops charging: full, or the afternoon crossing) and
+`soc_peak` (the high point before any afternoon decline).
 
 `clock` is the actual target time-of-day in the site timezone, not a modulo. `eta.label` adds
 the calendar hint and is formatted only on the server:
@@ -322,17 +362,30 @@ These worked examples pin the fallback 07:00–18:00 window, so they stay reprod
 the live estimate changes. At `P̄_obs = 4000 W` (a steady mean or point reading), 10:30,
 `L = 0.5 kW`, 15 kWh / 50 % SOC / 5 % reserve / 0.95 efficiency:
 
-| Resolved cap | Result |
-|---|---|
-| `6.0 kW` (fallback) | enough, **4.65 h → 15:09**, not capped |
-| `4.2 kW` | enough, **4.65 h → 15:09**, not capped |
-| `1.5 kW` | enough, **5.70 h → 16:12**, capped |
-| `1.0 kW` | not enough, **86.5 % → 87 % at 18:00** |
-| `0`/negative | treated as unavailable, falls back to 6 kW |
+| Resolved cap | Expected | Low (0.5 risk) |
+|---|---|---|
+| `6.0 kW` (fallback) | enough, **1.98 h → 12:29**, not capped | **4.65 h → 15:09** |
+| `4.2 kW` | enough, **1.98 h → 12:29**, capped | **4.65 h → 15:09** |
+| `1.5 kW` | enough, **5.26 h → 15:46**, capped | **5.70 h → 16:12** |
+| `1.0 kW` | not enough, **92.1 % at 18:00** | **86.5 % at 18:00** |
+| `0`/negative | treated as unavailable, falls back to 6 kW | — |
 
-At `P̄_obs = 1200 W`, same load and battery, the model reports **50.2 % at 18:00**: the
-surplus is too small to replace the house load and fill the pack. The risk factor and the
-load subtraction are deliberately conservative; the value can be tuned in one place.
+At `P̄_obs = 1200 W`, same load and battery, the expected model reports **74.8 % at 18:00**
+and the low case **50.2 %**: the surplus is too small to replace the house load and fill the
+pack. The 0.5 factor and the load subtraction remain available as the conservative signal,
+but they no longer set the headline.
+
+The screenshot case is the one that motivated the split. At 11:43, `P̄_obs = 1.66 kW`,
+`L = 1.20 kW`, SOC 87.33 %, window 06:51–16:37:
+
+| Curve | Current modeled net | Charge until | Peak | Sunset SOC |
+|---|---:|---|---:|---:|
+| Expected (`1.0`) | **+0.46 kW** | 14:06 | 91.9 % | **82.0 %** |
+| Low (`0.5`) | −0.37 kW | — | 87.33 % | **64.3 %** |
+
+The expected headline agrees with the measured `+0.46 kW` battery average. It still ends
+below the current SOC because the constant load exceeds PV after 14:06; the caption's
+`under assumed load` note explains that. The old 64.3 % remains visible as `solar.low`.
 
 ## Known limits
 
@@ -351,5 +404,10 @@ load subtraction are deliberately conservative; the value can be tuned in one pl
   mean lags a rising or falling curve, so the inferred peak is slightly low in the morning and
   slightly high in the late afternoon. This is accepted and documented above.
 - **The house load is assumed constant** over the remaining daylight. A large load change
-  moves the real finish time.
+  moves the real finish time. A charging battery can therefore still end below its current
+  SOC after the afternoon crossing; the caption says `under assumed load` in that case.
+- **The anchored peak can overshoot near the window edges.** When the 2.5× cap binds and the
+  battery is measurably charging, the consistency guard re-anchors the current PV. That keeps
+  the sign honest but can lift the modeled daily energy. The long-term fix is a physical
+  array limit or a daily-energy cap, not a larger multiplier.
 - **This is an estimate only.** It does not publish a wake, change a plan or set a limit.

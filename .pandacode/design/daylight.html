@@ -44,8 +44,8 @@
   --info: #0b6e99;
   --info-soft: #e0f2fe;
   /* Skylight meter fills: bright accents sampled from the calendar chips and
-     the battery. Each card's top rule, shadow and readout glow use the same
-     fill as its bars; the readout and icon stay page ink. */
+     the battery. Each card's top rule, paper wash and tinted shadow use the
+     same fill as its bars; the readout and icon stay page ink. */
   --bar-green: #7acc70;
   --bar-green-rgb: 122, 204, 112;
   --bar-amber: #e6be4a;
@@ -53,14 +53,6 @@
   --bar-blue: #447cd6;
   --bar-blue-rgb: 68, 124, 214;
   --bar-edge: rgba(23, 37, 47, .40);
-  /* Darker shades of each fill for the dense 1px core of the readout/icon
-     glow. These sit on cream, so they stay softer than the page ink. */
-  --edge-green: #5f9661;
-  --edge-amber: #a18c48;
-  --edge-blue: #3561a4;
-  --edge-red: #862c30;
-  --edge-off: #4b565e;
-  --card-edge: var(--edge-off);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           "Helvetica Neue", Arial, sans-serif;
@@ -359,10 +351,6 @@ input:focus, select:focus, button:focus-visible, textarea:focus {
   --card-accent: var(--muted);
   --card-accent-rgb: var(--muted-rgb);
   --card-border: #ded6c7;
-  --card-edge: var(--edge-off);
-  --glow-ring: calc(calc(var(--u) * .30) * var(--type-scale));
-  --glow-bloom: calc(calc(var(--u) * .68) * var(--type-scale));
-  --glow-wide: calc(calc(var(--u) * 1.05) * var(--type-scale));
   position: absolute;
   pointer-events: auto;
   display: flex;
@@ -372,7 +360,12 @@ input:focus, select:focus, button:focus-visible, textarea:focus {
   border-radius: calc(var(--u) * 2.4);
   border: 1.5px solid var(--card-border);
   border-top: 4px solid var(--card-accent);
-  background: linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%);
+  background:
+    linear-gradient(155deg,
+      rgba(var(--card-accent-rgb), .10) 0%,
+      rgba(var(--card-accent-rgb), .05) 50%,
+      rgba(var(--card-accent-rgb), .02) 100%),
+    linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%);
   box-shadow:
     0 12px 28px rgba(var(--card-accent-rgb), .18),
     0 2px 4px rgba(69, 56, 36, .06),
@@ -423,33 +416,29 @@ input:focus, select:focus, button:focus-visible, textarea:focus {
   column-gap: calc(var(--u) * 2.1);
 }
 
-/* The active meter band also owns the card accent: value, unit, icon, top
-   rule and shadow use the same fill as the bars. Keep these rules after the
-   per-card defaults so the state always wins. */
+/* The active meter band owns the card accent: top rule, paper wash and tinted
+   shadow use the same fill as the bars. The label, value, unit and icon stay
+   page ink. Keep these rules after the per-card defaults so the state always
+   wins. */
 .tile[data-level="green"] {
   --card-accent: var(--bar-green);
   --card-accent-rgb: var(--bar-green-rgb);
-  --card-edge: var(--edge-green);
 }
 .tile[data-level="amber"] {
   --card-accent: var(--bar-amber);
   --card-accent-rgb: var(--bar-amber-rgb);
-  --card-edge: var(--edge-amber);
 }
 .tile[data-level="red"] {
   --card-accent: var(--bad);
   --card-accent-rgb: var(--bad-rgb);
-  --card-edge: var(--edge-red);
 }
 .tile[data-level="export"] {
   --card-accent: var(--bar-blue);
   --card-accent-rgb: var(--bar-blue-rgb);
-  --card-edge: var(--edge-blue);
 }
 .tile[data-level="off"] {
   --card-accent: var(--muted);
   --card-accent-rgb: var(--muted-rgb);
-  --card-edge: var(--edge-off);
 }
 
 .tile-icon {
@@ -457,13 +446,6 @@ input:focus, select:focus, button:focus-visible, textarea:focus {
   width: calc(calc(var(--u) * 7.8) * var(--type-scale));
   height: calc(calc(var(--u) * 7.8) * var(--type-scale));
   color: var(--ink);
-  /* Four centred shadows trace the SVG alpha: a dense core in the fill's
-     darker shade, then the bar fill and two soft blooms. */
-  filter:
-    drop-shadow(0 0 1px var(--card-edge))
-    drop-shadow(0 0 var(--glow-ring) var(--card-accent))
-    drop-shadow(0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50))
-    drop-shadow(0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22));
 }
 .tile-icon svg { display: block; width: 100%; height: 100%; }
 
@@ -497,13 +479,6 @@ input:focus, select:focus, button:focus-visible, textarea:focus {
   letter-spacing: -.035em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  /* The meter lights the dark readout from behind: centred core, ring and
-     blooms. 0 0 offsets keep it a halo rather than a drop shadow. */
-  text-shadow:
-    0 0 1px var(--card-edge),
-    0 0 var(--glow-ring) var(--card-accent),
-    0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50),
-    0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22);
 }
 
 .tile-unit {
@@ -527,7 +502,7 @@ input:focus, select:focus, button:focus-visible, textarea:focus {
 
 /* Five-segment power meters shared by Solar, Grid and Home Load. One/two bars
    are green, three/four amber and five red; Grid export uses blue. The bars,
-   the card's top rule, its tinted shadow and the readout glow all use the
+   the card's top rule, its paper wash and its tinted shadow all use the
    bright Skylight accent.
    The bars themselves stay solid: the panel's contrast is modest and thin
    luminous lines disappear at distance. The 1px ink rim on a lit bar darkens
@@ -567,11 +542,9 @@ input:focus, select:focus, button:focus-visible, textarea:focus {
 .home-stage[data-available="false"] .tile-icon {
   color: var(--slate);
   opacity: .62;
-  filter: none;
 }
 .home-stage[data-available="false"] .tile-value {
   color: var(--slate);
-  text-shadow: none;
 }
 
 .home-stage[data-stale="true"] .tile {

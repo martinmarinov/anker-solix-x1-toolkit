@@ -43,6 +43,7 @@
       batteryHero: $("batteryHero"), batteryShell: $("batteryShell"),
       batterySoc: $("batterySoc"),
       batterySocUnit: $("batterySocUnit"), batterySummary: $("batterySummary"),
+      batteryNote: $("batteryNote"),
       clockTime: $("clockTime"), clockDate: $("clockDate"),
       statusDot: $("statusDot"), statusText: $("statusText"),
       liveStatus: $("liveStatus"), alert: $("homeAlert"),
@@ -158,6 +159,39 @@
              (legacyWhen ? " " + legacyWhen : "");
     }
     return "";
+  }
+
+  /* The caption is deliberately terse. The tooltip carries the averaged
+     inputs and the conservative low case so the headline can stay readable. */
+  function batteryDetail(est) {
+    var solar = est && est.solar;
+    if (!solar) return "";
+    var parts = [];
+    if (isNum(solar.observed_kw) && isNum(solar.load_kw)) {
+      var inputs = "10-min averages: PV " +
+        Number(solar.observed_kw).toFixed(2) + " kW, load " +
+        Number(solar.load_kw).toFixed(2) + " kW";
+      if (isNum(solar.batt_avg_kw)) {
+        inputs += ", battery " + Number(solar.batt_avg_kw).toFixed(2) + " kW";
+      }
+      parts.push(inputs + ".");
+    }
+    if (solar.charge_until && isNum(solar.soc_peak)) {
+      parts.push("Charges until ~" + solar.charge_until + " (peak " +
+        Math.round(Number(solar.soc_peak)) + "%).");
+    }
+    var low = solar.low;
+    if (low) {
+      if (low.kind === "to_soc" && isNum(low.soc)) {
+        parts.push("Low case " + Math.round(Number(low.soc)) + "%" +
+          (low.at ? " by " + low.at : "") + ".");
+      } else if ((low.kind === "to_full" || low.kind === "to_empty") &&
+                 isNum(low.hours)) {
+        parts.push("Low case ~" + fmtDuration(low.hours) + " to " +
+          (low.kind === "to_full" ? "full" : "empty") + ".");
+      }
+    }
+    return parts.join(" ");
   }
 
   /* Battery time-to-empty/full is computed on the server from a ten-minute,
@@ -476,7 +510,17 @@
     if (est && est.solar && est.solar.capped &&
         isNum(est.solar.charge_limit_kw)) {
       capNote = "Charge capped at " +
-        Number(est.solar.charge_limit_kw).toFixed(2) + " kW by the inverter";
+        Number(est.solar.charge_limit_kw).toFixed(2) + " kW by the inverter.";
+    }
+
+    /* A charging battery can still end below its current SOC when the
+       afternoon house load outgrows PV. Say so as quietly as possible. */
+    var loadNote = "";
+    if (available && socOk && isNum(batt.available_kwh) &&
+        batt.state === "charging" && est && est.phase === "charging" &&
+        est.eta && est.eta.kind === "to_soc" && isNum(est.eta.soc) &&
+        Number(est.eta.soc) < Number(soc)) {
+      loadNote = "under assumed load";
     }
 
     if (els.batteryHero) {
@@ -496,8 +540,13 @@
         if (readout) lines.push(readout);
         els.batterySummary.textContent = lines.join("\n");
       }
-      if (capNote) els.batterySummary.title = capNote;
+      var title = [capNote, batteryDetail(est)].filter(Boolean).join(" ");
+      if (title) els.batterySummary.title = title;
       else els.batterySummary.removeAttribute("title");
+    }
+    if (els.batteryNote) {
+      els.batteryNote.textContent = loadNote;
+      els.batteryNote.hidden = !loadNote;
     }
 
     setStatus(status.level || "waiting", status.label || (waiting ? "Waiting for telemetry" : ""));

@@ -31,6 +31,14 @@ def _contrast(a: str, b: str) -> float:
     return (hi + .05) / (lo + .05)
 
 
+def _blend(rgb: tuple[int, int, int], background: str, alpha: float) -> str:
+    h = background.lstrip("#")
+    back = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+    mixed = [round(fg * alpha + value * (1 - alpha))
+             for fg, value in zip(rgb, back)]
+    return "#" + "".join(f"{value:02x}" for value in mixed)
+
+
 class StaticRuntimeTests(unittest.TestCase):
     def test_no_preview_fixture_files(self):
         self.assertFalse((STATIC / "preview.html").exists())
@@ -182,8 +190,19 @@ class StaticRuntimeTests(unittest.TestCase):
 
     def test_home_cards_are_light_paper_with_ink_readouts(self):
         css = (STATIC / "css/home.css").read_text(encoding="utf-8")
-        self.assertIn("border-top: 4px solid var(--card-accent)", css)
-        self.assertIn("background: linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%)", css)
+        tile = re.search(r"\.tile \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(tile)
+        self.assertIn("border-top: 4px solid var(--card-accent)", tile.group(1))
+        for stop in (
+            "rgba(var(--card-accent-rgb), .10) 0%",
+            "rgba(var(--card-accent-rgb), .05) 50%",
+            "rgba(var(--card-accent-rgb), .02) 100%",
+        ):
+            self.assertIn(stop, tile.group(1))
+        self.assertIn(
+            "linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%)",
+            tile.group(1),
+        )
         self.assertIn(".tile-value", css)
         value = re.search(r"\.tile-value \{(.*?)\}", css, re.S)
         icon = re.search(r"\.tile-icon \{(.*?)\}", css, re.S)
@@ -231,16 +250,19 @@ class StaticRuntimeTests(unittest.TestCase):
             self.assertIn(f"--card-accent-rgb: var(--{rgb});", css)
             self.assertIn(f'.power-bars[data-level="{level}"]', css)
         self.assertIn("rgba(var(--card-accent-rgb), .18)", css)
+        tile = re.search(r"\.tile \{(.*?)\}", css, re.S)
         icon = re.search(r"\.tile-icon \{(.*?)\}", css, re.S)
         value = re.search(r"\.tile-value \{(.*?)\}", css, re.S)
         unit = re.search(r"\.tile-unit \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(tile)
         self.assertIsNotNone(icon)
         self.assertIsNotNone(value)
         self.assertIsNotNone(unit)
+        self.assertIn("rgba(var(--card-accent-rgb), .10) 0%", tile.group(1))
         self.assertIn("color: var(--ink)", icon.group(1))
         self.assertIn("color: var(--ink)", value.group(1))
         self.assertIn("color: inherit", unit.group(1))
-        self.assertIn("rgba(var(--card-accent-rgb)", value.group(1))
+        self.assertNotIn("rgba(var(--card-accent-rgb)", value.group(1))
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
         self.assertIn("function setCardLevel", js)
         self.assertEqual(js.count("setCardLevel(el, band)"), 3)
@@ -289,50 +311,27 @@ class StaticRuntimeTests(unittest.TestCase):
         self.assertIn("border: 1px solid rgba(122, 108, 88, .18)",
                       track.group(1))
 
-    def test_card_readout_and_icon_glow_with_the_meter_colour(self):
+    def test_card_readout_and_icon_have_no_glow(self):
         base = (STATIC / "css/base.css").read_text(encoding="utf-8")
-        for token, value in (("edge-green", "#5f9661"),
-                             ("edge-amber", "#a18c48"),
-                             ("edge-blue", "#3561a4"),
-                             ("edge-red", "#862c30"),
-                             ("edge-off", "#4b565e")):
-            self.assertIn(f"--{token}: {value};", base)
-        self.assertIn("--card-edge: var(--edge-off);", base)
-        self.assertNotIn("rgba(23, 37, 47, .65)", base)
         css = (STATIC / "css/home.css").read_text(encoding="utf-8")
-        for level, edge in (("green", "edge-green"),
-                            ("amber", "edge-amber"),
-                            ("red", "edge-red"),
-                            ("export", "edge-blue"),
-                            ("off", "edge-off")):
-            self.assertIn(f"--card-edge: var(--{edge});", css)
-        self.assertIn("--glow-ring: calc(calc(var(--u) * .30) * var(--type-scale));", css)
-        self.assertIn("--glow-bloom: calc(calc(var(--u) * .68) * var(--type-scale));", css)
-        self.assertIn("--glow-wide: calc(calc(var(--u) * 1.05) * var(--type-scale));", css)
+        for dead in ("--glow-", "--card-edge", "--edge-"):
+            self.assertNotIn(dead, css)
+            self.assertNotIn(dead, base)
+        icon = re.search(r"\.tile-icon \{(.*?)\}", css, re.S)
+        readout = re.search(r"\.tile-value \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(icon)
+        self.assertIsNotNone(readout)
+        self.assertNotIn("filter", icon.group(1))
+        self.assertNotIn("text-shadow", readout.group(1))
         self.assertNotIn("-webkit-text-stroke", css)
         self.assertNotIn("drop-shadow(1px 0 0", css)
-        readout = re.search(r"\.tile-value \{(.*?)\}", css, re.S)
-        self.assertIsNotNone(readout)
-        for shadow in (
-            "0 0 1px var(--card-edge)",
-            "0 0 var(--glow-ring) var(--card-accent)",
-            "0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50)",
-            "0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22)",
-        ):
-            self.assertIn(shadow, readout.group(1))
-        icon = re.search(r"\.tile-icon \{(.*?)\}", css, re.S)
-        self.assertIsNotNone(icon)
-        self.assertEqual(icon.group(1).count("drop-shadow("), 4)
-        for shadow in (
-            "0 0 1px var(--card-edge)",
-            "0 0 var(--glow-ring) var(--card-accent)",
-            "0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50)",
-            "0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22)",
-        ):
-            self.assertIn(f"drop-shadow({shadow})", icon.group(1))
 
-    def test_unavailable_cards_drop_the_glow(self):
+    def test_unavailable_cards_use_the_slate_wash(self):
         css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        tile = re.search(
+            r'\.home-stage\[data-available="false"\] \.tile \{(.*?)\}',
+            css, re.S,
+        )
         value = re.search(
             r'\.home-stage\[data-available="false"\] \.tile-value \{(.*?)\}',
             css, re.S,
@@ -341,13 +340,29 @@ class StaticRuntimeTests(unittest.TestCase):
             r'\.home-stage\[data-available="false"\] \.tile-icon \{(.*?)\}',
             css, re.S,
         )
+        self.assertIsNotNone(tile)
         self.assertIsNotNone(value)
         self.assertIsNotNone(icon)
+        self.assertIn("--card-accent: var(--slate);", tile.group(1))
+        self.assertIn("--card-accent-rgb: var(--slate-rgb);", tile.group(1))
         self.assertIn("color: var(--slate)", value.group(1))
-        self.assertIn("text-shadow: none", value.group(1))
         self.assertIn("color: var(--slate)", icon.group(1))
         self.assertIn("opacity: .62", icon.group(1))
-        self.assertIn("filter: none", icon.group(1))
+        self.assertNotIn("text-shadow", value.group(1))
+        self.assertNotIn("filter", icon.group(1))
+
+    def test_card_wash_keeps_text_above_contrast_floor(self):
+        base = (STATIC / "css/base.css").read_text(encoding="utf-8")
+        tokens = {
+            m.group(1): m.group(2)
+            for m in re.finditer(r"--([\w-]+):\s*(#[0-9a-fA-F]{6});", base)
+        }
+        for accent in ("bar-green", "bar-amber", "bar-blue", "bad", "muted"):
+            value = tokens[accent].lstrip("#")
+            rgb = tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))
+            wash = _blend(rgb, tokens["card"], .10)
+            self.assertGreaterEqual(_contrast(tokens["ink"], wash), 7.0, accent)
+            self.assertGreaterEqual(_contrast(tokens["muted"], wash), 4.5, accent)
 
     def test_portrait_home_wire_routes_around_the_caption(self):
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
@@ -615,6 +630,22 @@ class StaticRuntimeTests(unittest.TestCase):
         self.assertNotIn('est.mode === "solar"', js)
         self.assertIn("root.dataset.battery = (view.battery && view.battery.state)",
                       js)
+
+    def test_battery_caption_notes_the_assumed_load(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertIn('id="batteryNote"', html)
+        self.assertIn("under assumed load", html)
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        rule = re.search(r"\.battery-caption-note \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(rule)
+        self.assertIn("font-size", rule.group(1))
+        self.assertIn("color: var(--muted)", rule.group(1))
+        js = (STATIC / "home-view.js").read_text(encoding="utf-8")
+        self.assertIn("batteryNote", js)
+        self.assertIn("under assumed load", js)
+        self.assertIn('batt.state === "charging"', js)
+        self.assertIn("est.eta.kind === \"to_soc\"", js)
+        self.assertIn("Number(est.eta.soc) < Number(soc)", js)
 
     def test_drawer_about_describes_the_read_only_wake(self):
         html = INDEX.read_text(encoding="utf-8")

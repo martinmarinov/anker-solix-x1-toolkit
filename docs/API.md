@@ -340,33 +340,47 @@ estimate.
   "phase": "charging",
   "source": "solar",
   "rate_kw": 0.7,
-  "hours": 4.653,
-  "clock": "15:09",
+  "hours": 1.975,
+  "clock": "12:29",
   "soc_final": null,
   "solar_end": null,
   "reason": "solar_curve",
   "eta": {
     "kind": "to_full",
-    "hours": 4.653,
-    "clock": "15:09",
-    "label": "15:09",
+    "hours": 1.975,
+    "clock": "12:29",
+    "label": "12:29",
     "soc": null,
     "at": null
   },
   "solar": {
     "as_of": "10:30",
-    "remaining_kwh": 12.82,
-    "charge_kwh": 8.8,
+    "remaining_kwh": 25.65,
+    "charge_kwh": 20.89,
     "needed_kwh": 7.89,
     "load_kw": 0.5,
-    "peak_kw": 2.377,
+    "peak_kw": 4.755,
+    "power_kw_at_t0": 4.0,
+    "net_kw_at_t0": 3.5,
+    "batt_avg_kw": 0.7,
     "observed_kw": 4.0,
     "observed_source": "avg",
-    "risk_factor": 0.5,
+    "risk_factor": 1.0,
     "reachable": true,
     "capped": false,
+    "charge_until": "12:29",
+    "soc_peak": 100.0,
     "charge_limit_kw": 6.0,
-    "charge_limit_source": "default_6kw"
+    "charge_limit_source": "default_6kw",
+    "low": {
+      "risk_factor": 0.5,
+      "kind": "to_full",
+      "hours": 4.653,
+      "clock": "15:09",
+      "label": "15:09",
+      "soc": null,
+      "at": null
+    }
   }
 }
 ```
@@ -410,9 +424,22 @@ actual target time-of-day:
   device attributes or the site power limit (`device_attrs.<key>`, `power_limits.<key>`) → `default_6kw`. `plan-save` is a temporary
   source set immediately after a successful schedule save; the next frame or read replaces it.
   `capped` is true only when the limit actually clips the solar surplus.
-- `solar.observed_kw` is the PV observation that scaled the curve. `solar.observed_source`
-  is `avg` when the ten-minute mean was used and `instant` when the estimator fell back to
-  the instantaneous reading.
+- The headline `eta` uses the expected curve, anchored at the PV observation
+  (`solar.risk_factor = 1.0`). The old conservative 0.5 curve is preserved under
+  `solar.low` with the same ETA shape (`risk_factor`, `kind`, `hours`, `clock`, `label`,
+  `soc`, `at`). The browser shows the expected headline and puts the low case in the
+  caption tooltip.
+- `solar.observed_kw` is the PV observation that anchors the expected curve.
+  `solar.observed_source` is `avg` when the ten-minute mean was used and `instant` when the
+  estimator fell back to the instantaneous reading.
+- `solar.power_kw_at_t0` and `solar.net_kw_at_t0` are the modeled PV and PV-minus-load at
+  the observation. `solar.batt_avg_kw` is the measured battery average. When the battery is
+  charging, `net_kw_at_t0` is kept positive even if the 2.5× peak cap binds or the averaged
+  load disagrees with the battery.
+- `solar.charge_until` is when charging stops (the full time, or the afternoon crossing) and
+  `solar.soc_peak` is the high point before any afternoon decline. When a charging battery
+  is expected to end below its current SOC, the caption adds a small `under assumed load`
+  note; the tooltip carries the averaged inputs and the low case.
 - `batt_avg_net_kw` (signed), `load_avg_kw`, `solar_avg_kw` and the legacy `batt_avg_kw` are
   in the live snapshot. The averages cover ten minutes and are time-weighted. The estimator
   uses `solar_avg_kw` for the 50 W solar gate and the curve, falls back to the instantaneous

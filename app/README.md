@@ -13,7 +13,7 @@ app/
   power_flow.py       pure edge/aggregate parsing -> signed solar/grid/battery/home W
   solar_location.py   cached approximate site fix: SOLAR_* override or one GeoJS lookup
   daylight.py         single sunrise/sunset source for the icon, sky, ETA and caption
-  solar_forecast.py   half-sine solar model over the supplied window, scaled from an observation
+  solar_forecast.py   half-sine solar model over the supplied window, anchored at an observation
   eta.py              clock and calendar labels for the estimate
   battery_estimate.py mode selection, load compensation, charge-cap energy math
   limits.py           dynamic charge-limit extraction and the 6 kW fallback
@@ -125,15 +125,17 @@ capacity, never offered as a plan target.
   idle/charge/discharge; the ten-minute averaged PV (instant fallback while the mean is
   missing) and the instantaneous grid readings decide which formula to use. Discharge and
   grid charging keep the existing linear formulas. Solar charging inside the supplied
-  sunrise/sunset window uses a half-sine curve scaled from the averaged
-  PV, subtracts the ten-minute house load, and clips
-  at the runtime inverter cap. The cap comes from the live EMS field when present, then the
-  device attribute, then a named **6 kW** fallback; it is never a constant in the formula. On
-  the tested A5102 the realtime frame and the attribute APIs exposed **no** charge cap, so the
-  6 kW fallback is the path in use; a just-saved plan supplies its written value until the
-  next read. If the curve cannot fill the pack, the caption shows the expected SOC at the
-  effective sunset (the estimate, or **18:00** in fallback) (`87% by 18:00`) instead of a
-  fake finish time.
+  sunrise/sunset window anchors a half-sine at the averaged PV, subtracts the ten-minute
+  house load, and clips at the runtime inverter cap. The old 0.5-risk curve is kept as
+  `solar.low` and shown in the caption tooltip. The cap comes from the live EMS field when
+  present, then the device attribute, then a named **6 kW** fallback; it is never a constant
+  in the formula. On the tested A5102 the realtime frame and the attribute APIs exposed
+  **no** charge cap, so the 6 kW fallback is the path in use; a just-saved plan supplies its
+  written value until the next read. If the curve cannot fill the pack, the caption shows
+  the expected SOC at the effective sunset (the estimate, or **18:00** in fallback)
+  (`82% by 16:37`) instead of a fake finish time. When the battery is charging but the
+  expected sunset SOC is below the current SOC, a small `under assumed load` note explains
+  the afternoon decline.
   Only the estimate is averaged; the card’s watts/state, flows and meters stay instantaneous.
   The estimate’s clock is the actual target time, and estimates over 12 h add `tomorrow` or
   the target calendar date (`Sun 01 Nov 08:38`) on the server.
@@ -152,18 +154,18 @@ capacity, never offered as a plan target.
   when the house is consuming. Active paths also carry a slow dotted "walking wire" in the
   same colour as the arrow, moving toward the arrowhead. The battery is the visual hub; charge/discharge
   is shown by its fill and the summary line. The house is background artwork, not a flow node.
-- **Cards take their meter's colour.** Each card's top rule, tinted drop shadow and readout
-  glow use the same fill as its lit bars: leaf green `#7acc70`, amber `#e6be4a`, blue
-  `#447cd6`; red `#b91c1c` and the gray track are unchanged. The card label, kW value, unit
-  and icon stay page ink (`#17252f`, the battery percentage's colour), so the number keeps
-  maximum contrast. The glow is a dense 1px core in a darker shade of the fill (`#5f9661`,
-  `#a18c48`, `#3561a4`, `#862c30`), the fill itself, then two soft blooms at 50% and 22%.
-  All four centred layers scale with `--u` and `--type-scale`: 0 offsets read as emission,
-  not a drop shadow. The accents are sampled from the calendar chips and battery: the chip
-  bodies are 50% tints, so the solid corner and badge are the source colours. A 1px page-ink
+- **Cards take their meter's colour in the paper.** Each card's top rule, tinted drop shadow and
+  paper wash use the same fill as its lit bars: leaf green `#7acc70`, amber `#e6be4a`, blue
+  `#447cd6`; red `#b91c1c` and the gray track are unchanged. The wash is a 155° gradient at
+  10% / 5% / 2% of that fill over the existing `#fffdf8 → #fffaf0` cream, so the strongest
+  corner composites to `#f2f8ea` for green and `#f8e7e2` for red. The card label, kW value, unit
+  and icon stay page ink (`#17252f`), and the glyph glow is gone: no icon `drop-shadow`, no
+  value `text-shadow`. The accents are sampled from the calendar chips and battery; the chip
+  bodies are 50% tints, so the solid corner and badge are the source colours. At the 10% stop
+  ink clears 13:1 and the muted footer clears 4.62:1 across all five states. A 1px page-ink
   rim (`rgba(23,37,47,.40)`) darkens each lit bar at its own edge — a shade of the fill, not
   a gray outline — and lifts the pale amber/green silhouettes past the 3:1 non-text floor. An
-  unavailable card falls back to slate and drops the glow.
+  unavailable card falls back to the slate `#64748b` wash and sets the icon back to 62%.
 - **Home Load meter.** Five segments sit under the Home Load value. Below 2 kW one green
   bar; below 3 kW two green; below 4 kW three amber; below 5 kW four amber; 5 kW and above
   five red. It reads `view.home.w`, stays unlit until a real home reading exists, and its

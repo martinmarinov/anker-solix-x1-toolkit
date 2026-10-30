@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="artboard-width" content="806">
+<title>Skylight cards — meter paper wash</title>
+<style>
+/* Design record for the card surface change: the meter colour moves from a
+   glyph glow into the paper. Cards use the Skylight pane's portrait metrics
+   (u = 4.82, 1.5 type scale) so the review is 1:1 with the wall panel. */
+
+:root {
+  color-scheme: light;
+  --bg: #f4efe4;
+  --surface: #fffdf8;
+  --ink: #17252f;
+  --muted: #5a6b75;
+  --muted-rgb: 90, 107, 117;
+  --slate: #64748b;
+  --slate-rgb: 100, 116, 139;
+  --line: rgba(122, 108, 88, .18);
+  --line-strong: rgba(122, 108, 88, .34);
+  --card-border: #ded6c7;
+  --bar-green: #7acc70;
+  --bar-green-rgb: 122, 204, 112;
+  --bar-amber: #e6be4a;
+  --bar-amber-rgb: 230, 190, 74;
+  --bar-blue: #447cd6;
+  --bar-blue-rgb: 68, 124, 214;
+  --bad: #b91c1c;
+  --bad-rgb: 185, 28, 28;
+  --u: 4.820574162679426px;
+  --type-scale: 1.5;
+  --fs-label: clamp(12px, calc(var(--u) * 2.6), 34px);
+  --fs-value: clamp(30px, calc(var(--u) * 7.3), 96px);
+  --fs-unit: clamp(12px, calc(var(--u) * 3.0), 40px);
+  --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  width: 806px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 13px/1.45 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+.page { padding: 22px 20px 30px; }
+
+h1 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+}
+.lede {
+  margin: 0;
+  max-width: 700px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.lede b { color: var(--ink); }
+.key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+.key span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, .72);
+  font-size: 11px;
+  color: var(--muted);
+}
+.swatch { width: 9px; height: 9px; border-radius: 50%; }
+.swatch.green { background: var(--bar-green); }
+.swatch.amber { background: var(--bar-amber); }
+.swatch.blue { background: var(--bar-blue); }
+.swatch.red { background: var(--bad); }
+.swatch.gray { background: var(--muted); }
+.swatch.slate { background: var(--slate); }
+
+h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 24px 0 2px;
+  font-size: 14px;
+  letter-spacing: .01em;
+}
+h2 small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.note {
+  margin: 0 0 9px;
+  max-width: 746px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.note b { color: var(--ink); }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 371px);
+  gap: 12px;
+}
+.grid.states { row-gap: 14px; }
+
+.case { display: grid; gap: 4px; }
+.case-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 10.5px;
+  letter-spacing: .02em;
+}
+.case-label b {
+  color: var(--ink);
+  font-weight: 650;
+  font-size: 11px;
+}
+.badge {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(22, 101, 52, .10);
+  color: #166534;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.badge.neutral { background: rgba(90, 107, 117, .10); color: var(--muted); }
+.badge.old { background: rgba(146, 64, 14, .10); color: #92400e; }
+
+/* ------------------------------------------------------- the card itself */
+
+.card {
+  --card-accent: var(--muted);
+  --card-accent-rgb: var(--muted-rgb);
+  width: 371px;
+  height: 125px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  row-gap: calc(var(--u) * 1.05);
+  column-gap: calc(var(--u) * 2.1);
+  padding: calc(var(--u) * 2.0) calc(var(--u) * 2.4);
+  border-radius: calc(var(--u) * 2.4);
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--card-accent);
+  background:
+    linear-gradient(155deg,
+      rgba(var(--card-accent-rgb), .10) 0%,
+      rgba(var(--card-accent-rgb), .05) 50%,
+      rgba(var(--card-accent-rgb), .02) 100%),
+    linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%);
+  box-shadow:
+    0 12px 28px rgba(var(--card-accent-rgb), .18),
+    0 2px 4px rgba(69, 56, 36, .06),
+    inset 0 1px 0 rgba(255, 255, 255, .90);
+  color: var(--ink);
+}
+.card[data-level="green"] {
+  --card-accent: var(--bar-green);
+  --card-accent-rgb: var(--bar-green-rgb);
+}
+.card[data-level="amber"] {
+  --card-accent: var(--bar-amber);
+  --card-accent-rgb: var(--bar-amber-rgb);
+}
+.card[data-level="red"] {
+  --card-accent: var(--bad);
+  --card-accent-rgb: var(--bad-rgb);
+}
+.card[data-level="export"] {
+  --card-accent: var(--bar-blue);
+  --card-accent-rgb: var(--bar-blue-rgb);
+}
+.card[data-level="off"] {
+  --card-accent: var(--muted);
+  --card-accent-rgb: var(--muted-rgb);
+}
+
+/* Strength studies. The default card above is the 10% ship recipe that the
+   runtime uses; these two swap only the three wash stops. */
+.card.wash-8 {
+  background:
+    linear-gradient(155deg,
+      rgba(var(--card-accent-rgb), .08) 0%,
+      rgba(var(--card-accent-rgb), .04) 50%,
+      rgba(var(--card-accent-rgb), .02) 100%),
+    linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%);
+}
+.card.wash-14 {
+  background:
+    linear-gradient(155deg,
+      rgba(var(--card-accent-rgb), .14) 0%,
+      rgba(var(--card-accent-rgb), .07) 50%,
+      rgba(var(--card-accent-rgb), .03) 100%),
+    linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%);
+}
+
+.icon {
+  width: calc(calc(var(--u) * 7.8) * var(--type-scale));
+  height: calc(calc(var(--u) * 7.8) * var(--type-scale));
+  color: var(--ink);
+}
+.icon svg { display: block; width: 100%; height: 100%; }
+
+.body { min-width: 0; }
+.label {
+  font-size: calc(var(--fs-label) * var(--type-scale));
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  color: var(--ink);
+}
+.value {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--u) * 1.1);
+  margin-top: calc(var(--u) * .55);
+  color: var(--ink);
+  font-size: calc(var(--fs-value) * var(--type-scale));
+  line-height: .95;
+  font-weight: 700;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.unit {
+  color: inherit;
+  font-size: calc(var(--fs-unit) * var(--type-scale));
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.foot {
+  margin-top: calc(var(--u) * .35);
+  min-height: 1.1em;
+  color: var(--muted);
+  font-size: calc(var(--u) * 2.2 * var(--type-scale));
+  line-height: 1.2;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.bars {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: calc(var(--u) * .7);
+}
+.bars i {
+  height: calc(var(--u) * .82);
+  min-height: 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(122, 108, 88, .18);
+  background: rgba(122, 108, 88, .14);
+}
+.bars i.on {
+  border-color: rgba(23, 37, 47, .40);
+  background: var(--card-accent);
+}
+
+/* Reference only: the treatment this change replaces. The old glow tokens are
+   scoped here so they cannot leak into the ship recipe. */
+.card.recipe-glow {
+  --card-edge: #5f9661;
+  --glow-ring: calc(calc(var(--u) * .30) * var(--type-scale));
+  --glow-bloom: calc(calc(var(--u) * .68) * var(--type-scale));
+  --glow-wide: calc(calc(var(--u) * 1.05) * var(--type-scale));
+  background: linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%);
+}
+.card.recipe-glow .value {
+  text-shadow:
+    0 0 1px var(--card-edge),
+    0 0 var(--glow-ring) var(--card-accent),
+    0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50),
+    0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22);
+}
+.card.recipe-glow .icon {
+  filter:
+    drop-shadow(0 0 1px var(--card-edge))
+    drop-shadow(0 0 var(--glow-ring) var(--card-accent))
+    drop-shadow(0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50))
+    drop-shadow(0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22));
+}
+
+/* Quiet fallback: slate paper, ink set back, no glyph treatment. */
+.card.unavailable {
+  --card-accent: var(--slate);
+  --card-accent-rgb: var(--slate-rgb);
+}
+.card.unavailable .value { color: var(--slate); }
+.card.unavailable .icon { color: var(--slate); opacity: .62; }
+
+.footer {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-sun" viewBox="0 0 64 64" fill="none">
+    <g stroke="currentColor" stroke-width="3.6" stroke-linecap="round">
+      <path d="M32 4v8M32 52v8M4 32h8M52 32h8M12 12l6 6M46 46l6 6M52 12l-6 6M18 46l-6 6"/>
+    </g>
+    <circle cx="32" cy="32" r="11.5" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-grid" viewBox="0 0 64 64" fill="none" stroke="currentColor"
+          stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 4 L22 60 M32 4 L42 60"/>
+    <path d="M27 18h10M23 32h18M18 46h28"/>
+    <path d="M27 18 37 32 27 46 37 60 M37 18 27 32l10 14-10 14"/>
+    <path d="M14 18h13M37 18h13M9 32h14M41 32h14M4 46h14M46 46h14"/>
+  </symbol>
+  <symbol id="i-home" viewBox="0 0 64 64" fill="none">
+    <path d="M5 31 32 7l27 24" stroke="currentColor" stroke-width="5"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M13 27v30h38V27" fill="currentColor" stroke="currentColor"
+          stroke-width="4" stroke-linejoin="round"/>
+    <rect x="27" y="38" width="10" height="19" rx="1.5" fill="#fffdf8"/>
+  </symbol>
+</svg>
+
+<div class="page">
+  <h1>Meter-tinted card paper</h1>
+  <p class="lede">The meter colour moves from the glyphs into the paper. Cards stay
+    <b>ink-on-cream</b> with a low-chroma wash of the active meter hue; the 4px top rule and lit
+    bars remain the crisp state markers. Shown at the Skylight pane's
+    <b>806 px portrait metrics</b> (u&nbsp;=&nbsp;4.82, type scale 1.5).</p>
+  <div class="key">
+    <span><i class="swatch gray"></i>gray #5a6b75</span>
+    <span><i class="swatch green"></i>green #7acc70</span>
+    <span><i class="swatch amber"></i>amber #e6be4a</span>
+    <span><i class="swatch red"></i>red #b91c1c</span>
+    <span><i class="swatch blue"></i>export #447cd6</span>
+    <span><i class="swatch slate"></i>unavailable #64748b</span>
+    <span>155° wash · 10% strongest stop</span>
+  </div>
+
+  <h2>Wash strength <small>same green state, three strengths plus the old glow</small></h2>
+  <p class="note"><b>10% is the ship recipe.</b> 8% barely separates the states. 14% over-saturates
+    the paper and drops the muted red footer to 4.28:1 on cream, below the 4.5:1 floor. The glow
+    card is the treatment this change replaces.</p>
+
+  <div class="grid">
+    <div class="case">
+      <div class="case-label"><b>Green / Solar</b><span class="badge neutral">8% · too faint</span></div>
+      <article class="card wash-8" data-level="green">
+        <div class="icon"><svg><use href="#i-sun"/></svg></div>
+        <div class="body"><div class="label">Solar</div>
+          <div class="value"><span>2.14</span><span class="unit">kW</span></div></div>
+        <div class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+      </article>
+      <div class="case-label"><b>8%</b> corner #f4f9ed · ink 14.62:1 · muted 5.17:1</div>
+    </div>
+
+    <div class="case">
+      <div class="case-label"><b>Green / Solar</b><span class="badge">ship · 10%</span></div>
+      <article class="card" data-level="green">
+        <div class="icon"><svg><use href="#i-sun"/></svg></div>
+        <div class="body"><div class="label">Solar</div>
+          <div class="value"><span>2.14</span><span class="unit">kW</span></div></div>
+        <div class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+      </article>
+      <div class="case-label"><b>10%</b> corner #f2f8ea · ink 14.45:1 · muted 5.11:1</div>
+    </div>
+
+    <div class="case">
+      <div class="case-label"><b>Green / Solar</b><span class="badge old">14% · too strong</span></div>
+      <article class="card wash-14" data-level="green">
+        <div class="icon"><svg><use href="#i-sun"/></svg></div>
+        <div class="body"><div class="label">Solar</div>
+          <div class="value"><span>2.14</span><span class="unit">kW</span></div></div>
+        <div class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+      </article>
+      <div class="case-label"><b>14%</b> corner #ecf6e5 · ink 14.07:1 · muted 4.98:1</div>
+    </div>
+
+    <div class="case">
+      <div class="case-label"><b>Green / Solar</b><span class="badge old">old · glow</span></div>
+      <article class="card recipe-glow" data-level="green">
+        <div class="icon"><svg><use href="#i-sun"/></svg></div>
+        <div class="body"><div class="label">Solar</div>
+          <div class="value"><span>2.14</span><span class="unit">kW</span></div></div>
+        <div class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+      </article>
+      <div class="case-label"><b>Old</b> 1px core + fill + 50% / 22% blooms</div>
+    </div>
+  </div>
+
+  <h2>Every runtime state <small>ship recipe, same card CSS as the app</small></h2>
+  <p class="note">The accent swaps with the meter band; the label, value, unit and icon stay page
+    ink. Unavailable uses the slate wash and sets the glyph back to 62%. Red is the strongest
+    wash that still clears the muted floor at 10%.</p>
+  <div class="grid states">
+    <div class="case">
+      <div class="case-label"><b>Green</b> solar, 4 of 5</div>
+      <article class="card" data-level="green">
+        <div class="icon"><svg><use href="#i-sun"/></svg></div>
+        <div class="body"><div class="label">Solar</div>
+          <div class="value"><span>2.14</span><span class="unit">kW</span></div></div>
+        <div class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i></div>
+      </article>
+    </div>
+
+    <div class="case">
+      <div class="case-label"><b>Amber</b> home load, 3 of 5</div>
+      <article class="card" data-level="amber">
+        <div class="icon"><svg><use href="#i-home"/></svg></div>
+        <div class="body"><div class="label">Home Load</div>
+          <div class="value"><span>3.40</span><span class="unit">kW</span></div></div>
+        <div class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+      </article>
+    </div>
+
+    <div class="case">
+      <div class="case-label"><b>Red</b> home load, 5 of 5</div>
+      <article class="card" data-level="red">
+        <div class="icon"><svg><use href="#i-home"/></svg></div>
+        <div class="body"><div class="label">Home Load</div>
+          <div class="value"><span>5.20</span><span class="unit">kW</span></div></div>
+        <div class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+      </article>
+    </div>
+
+    <div class="case">
+      <div class="case-label"><b>Export</b> grid, 3 of 5</div>
+      <article class="card" data-level="export">
+        <div class="icon"><svg><use href="#i-grid"/></svg></div>
+        <div class="body"><div class="label">Grid</div>
+          <div class="value"><span>1.80</span><span class="unit">kW</span></div>
+          <div class="foot">Exporting</div></div>
+        <div class="bars"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+      </article>
+    </div>
+
+    <div class="case">
+      <div class="case-label"><b>Off</b> no significant flow</div>
+      <article class="card" data-level="off">
+        <div class="icon"><svg><use href="#i-sun"/></svg></div>
+        <div class="body"><div class="label">Solar</div>
+          <div class="value"><span>0.00</span><span class="unit">kW</span></div></div>
+        <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
+      </article>
+    </div>
+
+    <div class="case">
+      <div class="case-label"><b>Unavailable</b> slate wash, no glow</div>
+      <article class="card unavailable" data-level="off">
+        <div class="icon"><svg><use href="#i-home"/></svg></div>
+        <div class="body"><div class="label">Home Load</div>
+          <div class="value"><span>—</span><span class="unit">kW</span></div></div>
+        <div class="bars"><i></i><i></i><i></i><i></i><i></i></div>
+      </article>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span>10% wash over #fffdf8. Ink clears 13.05:1 and muted clears 4.62:1 at the strongest corner.</span>
+    <span>1:1 · 806 px</span>
+  </div>
+</div>
+</body></html>

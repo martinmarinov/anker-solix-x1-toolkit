@@ -6,10 +6,10 @@ own account. It runs on a local machine, NAS or small server.
 
 <p align="center">
   <img src="docs/daylight-dashboard.webp" width="480"
-       alt="Daylight wall dashboard: solar 0.00 kW, grid importing 7.36 kW, battery 31 percent, home load 3.40 kW">
+       alt="Daylight wall dashboard: solar 1.75 kW, grid idle, battery 95 percent charging at 1.41 kW, home load 0.34 kW, expected 98 percent by sunset">
 </p>
-<p align="center"><em>Live dashboard on a portrait wall display. Card chrome and readout glow
-follow the active meter band; values, units and icons stay page ink.</em></p>
+<p align="center"><em>Live dashboard on a portrait wall display. Card surfaces follow the
+active meter band; values, units and icons stay page ink.</em></p>
 
 > **Not affiliated with Anker.** This uses an undocumented private API. It can change or
 > break without notice. You are responsible for what you write to your system.
@@ -27,13 +27,15 @@ follow the active meter band; values, units and icons stay page ink.</em></p>
 - **Solar-aware battery ETA.** The signed ten-minute battery average sets idle/charge/discharge;
   the ten-minute averaged PV (instant fallback) and instantaneous grid readings choose the
   formula. Discharge and grid charging stay linear. Solar charging between the estimated
-  sunrise and sunset (supplied by `app/daylight.py`) scales a solar curve from that averaged
-  PV, subtracts the house load and clips at the runtime inverter cap. When the sun cannot fill
-  the pack, the dashboard shows the expected SOC at the effective sunset (the estimate, or
-  **18:00** when no location is available) instead of a false finish time. Estimates over
-  12 hours carry the target’s calendar hint (`tomorrow 16:30`, `Sat 04 Jul 02:38`); shorter
-  ones print only the time. The cards stay instantaneous. See
-  [`docs/SOLAR-ESTIMATE.md`](docs/SOLAR-ESTIMATE.md).
+  sunrise and sunset (supplied by `app/daylight.py`) anchors a half-sine at that averaged
+  PV, subtracts the house load and clips at the runtime inverter cap. The old 0.5-risk curve
+  is kept as the low case in the tooltip, so the headline no longer shows a discharge while
+  the battery is charging. When the sun cannot fill the pack, the dashboard shows the expected
+  SOC at the effective sunset (the estimate, or **18:00** when no location is available)
+  instead of a false finish time; a small `under assumed load` note explains an expected
+  afternoon decline. Estimates over 12 hours carry the target’s calendar hint
+  (`tomorrow 16:30`, `Sat 04 Jul 02:38`); shorter ones print only the time. The cards stay
+  instantaneous. See [`docs/SOLAR-ESTIMATE.md`](docs/SOLAR-ESTIMATE.md).
 - **Day / night backdrop.** For one hour after sunset the scene crossfades from the daylight
   house to a moonlit copy with lit windows and stars, and for one hour before sunrise it fades
   back. Both edges follow the same server-supplied `view.daylight` window as the solar icon

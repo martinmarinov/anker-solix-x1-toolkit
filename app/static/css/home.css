@@ -134,10 +134,6 @@
   --card-accent: var(--muted);
   --card-accent-rgb: var(--muted-rgb);
   --card-border: #ded6c7;
-  --card-edge: var(--edge-off);
-  --glow-ring: calc(calc(var(--u) * .30) * var(--type-scale));
-  --glow-bloom: calc(calc(var(--u) * .68) * var(--type-scale));
-  --glow-wide: calc(calc(var(--u) * 1.05) * var(--type-scale));
   position: absolute;
   pointer-events: auto;
   display: flex;
@@ -147,7 +143,12 @@
   border-radius: calc(var(--u) * 2.4);
   border: 1.5px solid var(--card-border);
   border-top: 4px solid var(--card-accent);
-  background: linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%);
+  background:
+    linear-gradient(155deg,
+      rgba(var(--card-accent-rgb), .10) 0%,
+      rgba(var(--card-accent-rgb), .05) 50%,
+      rgba(var(--card-accent-rgb), .02) 100%),
+    linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%);
   box-shadow:
     0 12px 28px rgba(var(--card-accent-rgb), .18),
     0 2px 4px rgba(69, 56, 36, .06),
@@ -198,33 +199,29 @@
   column-gap: calc(var(--u) * 2.1);
 }
 
-/* The active meter band also owns the card accent: value, unit, icon, top
-   rule and shadow use the same fill as the bars. Keep these rules after the
-   per-card defaults so the state always wins. */
+/* The active meter band owns the card accent: top rule, paper wash and tinted
+   shadow use the same fill as the bars. The label, value, unit and icon stay
+   page ink. Keep these rules after the per-card defaults so the state always
+   wins. */
 .tile[data-level="green"] {
   --card-accent: var(--bar-green);
   --card-accent-rgb: var(--bar-green-rgb);
-  --card-edge: var(--edge-green);
 }
 .tile[data-level="amber"] {
   --card-accent: var(--bar-amber);
   --card-accent-rgb: var(--bar-amber-rgb);
-  --card-edge: var(--edge-amber);
 }
 .tile[data-level="red"] {
   --card-accent: var(--bad);
   --card-accent-rgb: var(--bad-rgb);
-  --card-edge: var(--edge-red);
 }
 .tile[data-level="export"] {
   --card-accent: var(--bar-blue);
   --card-accent-rgb: var(--bar-blue-rgb);
-  --card-edge: var(--edge-blue);
 }
 .tile[data-level="off"] {
   --card-accent: var(--muted);
   --card-accent-rgb: var(--muted-rgb);
-  --card-edge: var(--edge-off);
 }
 
 .tile-icon {
@@ -232,13 +229,6 @@
   width: calc(calc(var(--u) * 7.8) * var(--type-scale));
   height: calc(calc(var(--u) * 7.8) * var(--type-scale));
   color: var(--ink);
-  /* Four centred shadows trace the SVG alpha: a dense core in the fill's
-     darker shade, then the bar fill and two soft blooms. */
-  filter:
-    drop-shadow(0 0 1px var(--card-edge))
-    drop-shadow(0 0 var(--glow-ring) var(--card-accent))
-    drop-shadow(0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50))
-    drop-shadow(0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22));
 }
 .tile-icon svg { display: block; width: 100%; height: 100%; }
 
@@ -272,13 +262,6 @@
   letter-spacing: -.035em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  /* The meter lights the dark readout from behind: centred core, ring and
-     blooms. 0 0 offsets keep it a halo rather than a drop shadow. */
-  text-shadow:
-    0 0 1px var(--card-edge),
-    0 0 var(--glow-ring) var(--card-accent),
-    0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50),
-    0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22);
 }
 
 .tile-unit {
@@ -302,7 +285,7 @@
 
 /* Five-segment power meters shared by Solar, Grid and Home Load. One/two bars
    are green, three/four amber and five red; Grid export uses blue. The bars,
-   the card's top rule, its tinted shadow and the readout glow all use the
+   the card's top rule, its paper wash and its tinted shadow all use the
    bright Skylight accent.
    The bars themselves stay solid: the panel's contrast is modest and thin
    luminous lines disappear at distance. The 1px ink rim on a lit bar darkens
@@ -342,11 +325,9 @@
 .home-stage[data-available="false"] .tile-icon {
   color: var(--slate);
   opacity: .62;
-  filter: none;
 }
 .home-stage[data-available="false"] .tile-value {
   color: var(--slate);
-  text-shadow: none;
 }
 
 .home-stage[data-stale="true"] .tile {
@@ -545,6 +526,18 @@
   letter-spacing: .01em;
   font-variant-numeric: tabular-nums;
   transition: color .8s ease;
+}
+
+/* Quiet qualifier for the expected-SOC line. It is deliberately much
+   smaller than the caption so the fitted portrait battery does not shrink
+   when the note appears. */
+.battery-caption-note {
+  color: var(--muted);
+  font-size: calc(clamp(9px, calc(var(--u) * 1.7), 15px) * var(--type-scale));
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: .01em;
+  white-space: nowrap;
 }
 
 .live-status {

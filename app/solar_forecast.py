@@ -8,12 +8,17 @@ and the model treats it as the value there.
 
     S      = start_hour, E = end_hour, W = E - S
     s(t)   = sin(pi * (t - S) / W)                    inside S..E
-    P_peak = r * min(P_obs / s(t0), M * P_obs)        r = 0.5, M = 2.5
+    P_peak = r * min(P_obs / s(t0), M * P_obs)        r = 1.0 expected,
+                                                      r = 0.5 low, M = 2.5
     P(t)   = P_peak * s(t)
 
 ``S`` and ``E`` normally come from :mod:`daylight`; a missing or invalid pair
 falls back to the canonical 07:00-18:00 window.  Once a curve exists, every
 energy helper reads the window stored on that curve.
+
+The battery estimator builds two curves from one observation: ``r = 1.0``
+anchors the expected curve at the observation, and ``r = 0.5`` keeps the
+original conservative curve as the low case.
 
 The module is pure: no Anker, no clock, no I/O.  Callers pass decimal local
 hours.  Hour 10.5 means 10:30.
@@ -27,6 +32,7 @@ from daylight import DEFAULT_SUNRISE_HOUR, DEFAULT_SUNSET_HOUR
 SOLAR_START_HOUR = DEFAULT_SUNRISE_HOUR
 SOLAR_END_HOUR = DEFAULT_SUNSET_HOUR
 SOLAR_WINDOW_HOURS = SOLAR_END_HOUR - SOLAR_START_HOUR
+SOLAR_EXPECTED_RISK_FACTOR = 1.0
 SOLAR_RISK_FACTOR = 0.5
 SOLAR_MAX_PEAK_MULTIPLIER = 2.5
 SOLAR_MIN_OBS_W = 50.0
