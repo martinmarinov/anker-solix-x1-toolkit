@@ -51,6 +51,10 @@ FOLLOW_ON_COUNT = 2
 
 TRIGGER_GRACE_S = 12
 WAKE_TIMEOUT_S = 60
+# Suppress the Refreshing notice for the first moments of a wake. A healthy
+# renewal is answered on the next frame; flashing the label for one poll is
+# noise. The snapshot still reports waking=True; only the display flag waits.
+WAKING_NOTICE_GRACE_S = 2
 BATTERY_AVG_WINDOW_S = 600
 CHARGE_LIMIT_GRACE_S = 300
 CHARGE_LIMIT_REFRESH_S = 6 * 3600
@@ -348,7 +352,10 @@ class LiveFeed:
             if (self._waking_since is not None
                     and now - self._waking_since >= WAKE_TIMEOUT_S):
                 self._waking_since = None
-            waking = self._waking_since is not None
+            waking_since = self._waking_since
+            waking = waking_since is not None
+            waking_notice = (waking_since is not None
+                             and now - waking_since >= WAKING_NOTICE_GRACE_S)
 
             # The requested window has delivered its last frame and one full
             # interval has passed since it. Renew now, even before the data is
@@ -373,21 +380,28 @@ class LiveFeed:
                     self._pending_interval_s = None
                     self._window_frames = 0
                     stale_after = stale_after_s(self.interval_s)
+                    stale = available and (age is None or age > stale_after)
 
                 self._last_trigger_at = now
                 self._waking_since = now
+                # A wake starts a new frame budget. Without this reset the
+                # 5 s/60-frame window stays "complete" forever and renews on
+                # every poll once the cooldown has passed.
+                self._window_frames = 0
                 waking = True
-                if available:
-                    snap["waking"] = True
-                    snap["stale"] = False
-                else:
+                waking_notice = False
+                if not available:
                     snap = {"available": False, "reason": "waking"}
                 self.snapshot = snap
                 trigger = True
 
             if available:
-                snap["stale"] = bool(stale and not waking)
+                # Stale wins over waking: an overdue frame should say so even
+                # while the retry is in flight. The notice is debounced so a
+                # normal renewal does not flash "Refreshing" for one poll.
+                snap["stale"] = bool(stale)
                 snap["waking"] = bool(waking)
+                snap["waking_notice"] = bool(waking_notice)
                 if age is not None:
                     snap["age_s"] = age
                 snap.update(self._averages(now))
@@ -436,11 +450,14 @@ class LiveFeed:
                 self._last_trigger_at = now
                 self._waking_since = now
                 if available:
+                    new_stale_after = stale_after_s(self.interval_s)
                     snap["waking"] = True
-                    snap["stale"] = False
+                    snap["waking_notice"] = False
+                    snap["stale"] = bool(age is None
+                                         or age > new_stale_after)
                     snap["interval_s"] = self.interval_s
                     snap["count"] = self.count
-                    snap["stale_after_s"] = stale_after_s(self.interval_s)
+                    snap["stale_after_s"] = new_stale_after
                     self.snapshot = snap
                 else:
                     self.snapshot = {

@@ -414,8 +414,9 @@
           <p class="small muted refresh-help">
             The browser checks this server at one third of the MQTT interval, with a
             2 s floor (2 s at 5 s, 20 s at 60 s). Anker MQTT is re-requested at the
-            selected cadence; a cold wake can take up to a minute and shows
-            <b>Refreshing</b> without hiding the last reading.
+            selected cadence; a cold wake can take up to a minute. The last reading
+            stays visible. <b>Refreshing</b> appears only if the wake is still
+            waiting after 2 s; an older frame is labelled <b>Stale</b>.
           </p>
         </div>
 

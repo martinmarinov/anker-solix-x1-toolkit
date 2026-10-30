@@ -107,9 +107,9 @@ separate Anker sessions and subscriptions. Put it behind HTTPS and run with
   applies the previous whole hour. See [`docs/FIRMWARE-LIMITS.md`](docs/FIRMWARE-LIMITS.md).
 - The API is **private and undocumented**. Expect breakage.
 - The slowest selectable cadence is **60 s**. Above 5 s the device is asked for two frames at
-  a time, so a wake gap of up to a minute can appear between windows; the dashboard shows
-  `Refreshing` and keeps the last values. The wall panel's older 5 s build can temporarily
-  make the feed faster than the selected cadence.
+  a time, so a wake gap of up to a minute can appear between windows; the dashboard keeps the
+  last values and shows `Refreshing` after a 2 s grace, or `Stale` once the frame is old. The
+  wall panel's older 5 s build can temporarily make the feed faster than the selected cadence.
 - The dashboard targets a **Skylight Calendar WebView** (Chromium 95). Other browsers are
   not a support target.
 - There is **no summary or weather strip yet**; those await a verified Anker stats source.

@@ -198,8 +198,10 @@ It is sent when any of these is true:
   passed since it;
 - the latest frame is older than the stale threshold.
 
-A **60 s wake timeout** keeps the last snapshot visible as `Refreshing` while
-the command is in flight. It does not blank the dashboard.
+A **60 s wake timeout** keeps the last snapshot visible while the command is in
+flight. It does not blank the dashboard. The status line is `Refreshing · Ns`
+only while the frame is still fresh; an overdue frame stays `Stale · Ns` and the
+retry continues.
 
 ### Count and interval
 
@@ -231,6 +233,11 @@ window until it is tested with the wall panel quiet. A second wake while a
 window is active is queued or ignored, so a slider change is applied at the
 next window boundary rather than published mid-window.
 
+The frame count is **per request**: a completed window triggers one renewal,
+then the counter resets on publish so the next window must deliver its own 60
+frames (or two above 5 s). Without that reset the 5 s window stayed "complete"
+and renewed on every poll after the first five minutes.
+
 ### Stale and renewal
 
 - `stale_after = max(30, round(1.5 × interval) + 5)`:
@@ -238,8 +245,14 @@ next window boundary rather than published mid-window.
 - Renewal is measured from the **last frame**, not from the wake publish:
   the next request is due one interval after the last frame of the window.
 - Cooldown: `max(30, interval)` seconds between wake publishes.
-- While a wake is in flight, `waking` keeps the values and the UI shows
-  `Refreshing · Ns` instead of `Stale`. A real frame clears it immediately.
+- A wake keeps the last values. `Refreshing · Ns` is shown only after the wake
+  has been in flight for **2 s**, so a healthy renewal that answers on the next
+  frame never flashes the label. A real frame clears it immediately.
+- `Stale` wins over `Refreshing`: once the frame is older than the threshold,
+  the line stays `Stale · Ns` even while a retry is in flight. The retry
+  continues quietly; a frame clears both.
+- The snapshot keeps `waking` (the command is in flight) and `waking_notice`
+  (the debounced label flag). They differ only during the first 2 s of a wake.
 - Timing is intentionally tolerant: ±5 s at the larger intervals is acceptable.
 
 ### Race with the wall panel
@@ -270,10 +283,11 @@ still valid idle telemetry and remain live.
 `parse_frame()` rejects empty/non-dict EMS `data` objects before they can replace
 the last good snapshot. Regression tests cover empty frames and true zero values.
 
-An available snapshot with `waking` set keeps its values and renders the status
-**Refreshing · Ns**, not `Stale` and not a blank card. If the wake does not
-produce a frame within 60 s, the next read falls back to normal stale/offline
-handling and retries after the cooldown.
+An available snapshot keeps its values during a wake. Before the stale threshold
+it renders **Refreshing · Ns** (after the 2 s notice grace); once the frame is
+older than the threshold, **Stale · Ns** wins even while the retry is in flight.
+Nothing blanks the card. If the wake does not produce a frame within 60 s, the
+next read retries after the cooldown and the stale label stays up meanwhile.
 
 ## mitmproxy attempt
 

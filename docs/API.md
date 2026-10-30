@@ -276,6 +276,12 @@ Max-Age=31536000`, plus `Secure` with `--secure-cookies`). It is not the session
 cookie and deliberately survives sign-out and account switches. A change while
 a window is active is stored as pending and applied at the next window boundary.
 
+On an available snapshot, `live.waking` is the command state: true from the
+publish until the first frame or the 60 s timeout. `live.waking_notice` is the
+debounced display flag; it turns true 2 s after the publish, so a fast renewal
+never flashes `Refreshing`. `live.stale` is independent of both and takes
+precedence in `view.status` (`Stale · Ns` even while a wake retries).
+
 ### Live view: battery estimate
 
 `/api/live` returns `view.battery.estimate` alongside the existing battery fields. `mode` is

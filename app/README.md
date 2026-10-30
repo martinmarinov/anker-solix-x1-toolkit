@@ -152,8 +152,9 @@ capacity, never offered as a plan target.
 - **Stale is quiet but visible.** Cards and battery dim, values keep their last reading, and
   a compact status line under the battery caption becomes amber `Stale · Ns` when the frame
   is older than the cadence's threshold (30 s at 5 s, 50 s at 30 s, 95 s at 60 s). A wake in
-  flight shows `Refreshing · Ns` instead, keeping the last values. Unavailable telemetry
-  shows `—`, never a fake zero, and hides the flow layer.
+  flight keeps the last values and shows `Refreshing · Ns` only after 2 s, so a healthy
+  renewal never flashes the label; once the frame is stale, `Stale · Ns` wins and the retry
+  continues. Unavailable telemetry shows `—`, never a fake zero, and hides the flow layer.
 - **No summary strip and no weather.** Both were deliberately deferred until an Anker stats
   source exists. The mockup intentionally removes the on-wall clock and site chip; the clock,
   date and site identity now live in the plan drawer header. A status line appears under the
@@ -326,8 +327,8 @@ headers or tokens.
 | Validation | caught in the browser, re-checked server-side |
 | Read-back mismatch | polls up to ~6 s (cloud is eventually consistent), then 409 + automatic restore + both plans |
 | Live feed down | cards and battery show `—` + waiting/offline; flows hide; editor unaffected |
-| Live frame older than the cadence threshold | values stay, cards and battery dim, amber `Stale` |
-| Wake in flight (up to 60 s) | values stay, dimmed, `Refreshing · Ns`; not `Stale` |
+| Live frame older than the cadence threshold | values stay, cards and battery dim, amber `Stale · Ns`; a retry continues quietly |
+| Fresh wake in flight (up to 60 s) | values stay, dimmed, `Refreshing · Ns` after a 2 s notice grace |
 
 ---
 

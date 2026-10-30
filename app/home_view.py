@@ -104,7 +104,11 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
     snap = snapshot if isinstance(snapshot, dict) else {}
     available = bool(snap.get("available"))
     waking = bool(snap.get("waking"))
-    stale = bool(snap.get("stale")) and not waking
+    # The notice is deliberately quieter than the command: a fast renewal
+    # never renders "Refreshing". Snapshots without the field (old clients,
+    # focused tests) fall back to the raw waking flag.
+    waking_notice = bool(snap.get("waking_notice", waking))
+    stale = bool(snap.get("stale"))
     try:
         age_s = int(snap.get("age_s"))
     except (TypeError, ValueError):
@@ -233,14 +237,14 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
     if available_kwh is not None:
         available_kwh = round(available_kwh, 2)
 
-    if waking:
-        status = {"level": "waking",
-                  "label": f"Refreshing · {_age_label(age_s)}" if age_s is not None
-                  else "Refreshing"}
-    elif stale:
+    if stale:
         status = {"level": "stale",
                   "label": f"Stale · {_age_label(age_s)}" if age_s is not None
                   else "Stale"}
+    elif waking_notice:
+        status = {"level": "waking",
+                  "label": f"Refreshing · {_age_label(age_s)}" if age_s is not None
+                  else "Refreshing"}
     else:
         status = {"level": "live", "label": "Live"}
 

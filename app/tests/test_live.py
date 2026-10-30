@@ -13,9 +13,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from home_view import build_home_view  # noqa: E402
 from live import (  # noqa: E402
-    LiveFeed, build_trigger, count_for_interval, normalise_interval,
-    parse_frame, stale_after_s,
+    LiveFeed, WAKING_NOTICE_GRACE_S, build_trigger, count_for_interval,
+    normalise_interval, parse_frame, stale_after_s,
 )
 
 
@@ -184,10 +185,64 @@ class LiveFeedTests(unittest.TestCase):
         snap = feed.get()
         self.assertEqual(feed.wakes, 1)
         self.assertTrue(snap["waking"])
+        self.assertFalse(snap["waking_notice"])
         self.assertFalse(snap["stale"])
         self.assertEqual(snap["pp"], 1000)
+        self.assertEqual(feed._window_frames, 0)
 
-    def test_stale_keeps_values_and_sets_waking(self):
+        # The notice appears only after the grace; the command stays in flight.
+        feed._waking_since = time.time() - WAKING_NOTICE_GRACE_S - 0.5
+        snap = feed.get()
+        self.assertTrue(snap["waking"])
+        self.assertTrue(snap["waking_notice"])
+        self.assertFalse(snap["stale"])
+
+    def test_wake_starts_a_new_frame_budget(self):
+        now = int(time.time())
+        feed = make_feed(interval=5, snapshot={
+            "available": True, "ts": now - 6, "pp": 1000, "bp": 0,
+            "soc": 50,
+        })
+        feed._window_frames = 60
+        feed.get()
+        self.assertEqual(feed.wakes, 1)
+        self.assertEqual(feed._window_frames, 0)
+
+        # A new window needs its own 60 frames: 59 must not renew.
+        feed._waking_since = None
+        feed._last_trigger_at = time.time() - 31
+        feed._window_frames = 59
+        feed.snapshot["ts"] = int(time.time()) - 6
+        feed.get()
+        self.assertEqual(feed.wakes, 1)
+
+        # The 60th frame ends the window and renews.
+        feed._window_frames = 60
+        feed.snapshot["ts"] = int(time.time()) - 6
+        feed.get()
+        self.assertEqual(feed.wakes, 2)
+
+    def test_waking_notice_waits_two_seconds(self):
+        now = int(time.time())
+        feed = make_feed(interval=30, snapshot={
+            "available": True, "ts": now - 30, "pp": 1000, "bp": 0,
+            "soc": 50,
+        })
+        feed._window_frames = 2
+        snap = feed.get()
+        self.assertEqual(feed.wakes, 1)
+        self.assertTrue(snap["waking"])
+        self.assertFalse(snap["waking_notice"])
+
+        feed._waking_since = time.time() - WAKING_NOTICE_GRACE_S + 0.5
+        snap = feed.get()
+        self.assertFalse(snap["waking_notice"])
+
+        feed._waking_since = time.time() - WAKING_NOTICE_GRACE_S - 0.5
+        snap = feed.get()
+        self.assertTrue(snap["waking_notice"])
+
+    def test_stale_keeps_values_and_wins_over_waking(self):
         now = int(time.time())
         feed = make_feed(interval=60, snapshot={
             "available": True, "ts": now - 200, "pp": 1200, "bp": 0,
@@ -197,9 +252,17 @@ class LiveFeedTests(unittest.TestCase):
         self.assertEqual(feed.wakes, 1)
         self.assertTrue(snap["available"])
         self.assertTrue(snap["waking"])
-        self.assertFalse(snap["stale"])
+        self.assertFalse(snap["waking_notice"])
+        self.assertTrue(snap["stale"])
+        self.assertTrue(feed.stats()["waking"])
         self.assertEqual(snap["pp"], 1200)
         self.assertEqual(snap["age_s"], 200)
+
+        # The notice does not override stale when the grace has passed.
+        feed._waking_since = time.time() - WAKING_NOTICE_GRACE_S - 0.5
+        snap = feed.get()
+        self.assertTrue(snap["waking_notice"])
+        self.assertTrue(snap["stale"])
 
     def test_waking_timeout_allows_retry(self):
         feed = make_feed(connected_for=300)
@@ -208,6 +271,24 @@ class LiveFeedTests(unittest.TestCase):
         feed.snapshot = {"available": False, "reason": "waking"}
         feed.get()
         self.assertEqual(feed.wakes, 1)
+
+    def test_waking_timeout_keeps_stale_label_while_retrying(self):
+        now = int(time.time())
+        feed = make_feed(interval=5, connected_for=300, snapshot={
+            "available": True, "ts": now - 90, "pp": 1200, "bp": 0,
+            "soc": 44,
+        })
+        feed._waking_since = time.time() - 61
+        feed._last_trigger_at = time.time() - 61
+        snap = feed.get()
+        self.assertEqual(feed.wakes, 1)
+        self.assertTrue(snap["available"])
+        self.assertTrue(snap["stale"])
+        self.assertTrue(snap["waking"])
+        self.assertFalse(snap["waking_notice"])
+        view = build_home_view(snap, now=snap.get("ts"))
+        self.assertEqual(view["status"]["level"], "stale")
+        self.assertTrue(view["status"]["label"].startswith("Stale · "))
 
     def test_set_interval_pending_until_window_end(self):
         now = int(time.time())
@@ -229,6 +310,7 @@ class LiveFeedTests(unittest.TestCase):
         self.assertEqual(feed.count, 2)
         self.assertEqual(feed.wakes, 1)
         self.assertTrue(snap["waking"])
+        self.assertFalse(snap["waking_notice"])
         self.assertEqual(feed.stats()["pending_interval_s"], None)
 
     def test_set_interval_applies_at_once_without_a_window(self):
@@ -301,6 +383,7 @@ class LiveFeedTests(unittest.TestCase):
         self.assertEqual(snap["charge_limit_kw"], 6.0)
         self.assertEqual(snap["charge_limit_source"], "default_6kw")
         self.assertFalse(snap["waking"])
+        self.assertFalse(snap["waking_notice"])
         self.assertFalse(snap["stale"])
 
     def test_missing_solar_fields_do_not_average_as_zero(self):

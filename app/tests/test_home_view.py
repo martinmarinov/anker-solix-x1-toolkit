@@ -137,15 +137,47 @@ class HomeViewTests(unittest.TestCase):
         self.assertEqual(view["status"]["level"], "waiting")
         self.assertEqual(view["status"]["label"], "Requesting live data")
 
-    def test_waking_keeps_last_values_and_is_not_stale(self):
+    def test_fresh_wake_keeps_values_and_shows_refreshing(self):
         view = build_home_view({
-            "available": True, "waking": True, "stale": True, "age_s": 12,
+            "available": True, "waking": True, "waking_notice": True,
+            "stale": False, "age_s": 12,
             "soc": 60, "pp": 1800, "gp": 200, "bp": 0, "lp": 1600,
         })
         self.assertTrue(view["available"])
         self.assertFalse(view["stale"])
         self.assertEqual(view["status"]["level"], "waking")
         self.assertEqual(view["status"]["label"], "Refreshing · 12s")
+        self.assertEqual(view["solar"]["w"], 1800)
+
+    def test_wake_inside_the_notice_grace_stays_live(self):
+        view = build_home_view({
+            "available": True, "waking": True, "waking_notice": False,
+            "stale": False, "age_s": 4,
+            "soc": 60, "pp": 1800, "gp": 200, "bp": 0, "lp": 1600,
+        })
+        self.assertTrue(view["available"])
+        self.assertEqual(view["status"]["level"], "live")
+        self.assertEqual(view["status"]["label"], "Live")
+        self.assertEqual(view["solar"]["w"], 1800)
+
+    def test_waking_without_the_notice_field_falls_back(self):
+        view = build_home_view({
+            "available": True, "waking": True, "stale": False, "age_s": 12,
+            "soc": 60, "pp": 1800, "gp": 200, "bp": 0, "lp": 1600,
+        })
+        self.assertEqual(view["status"]["level"], "waking")
+        self.assertEqual(view["status"]["label"], "Refreshing · 12s")
+
+    def test_stale_wins_over_a_wake_in_flight(self):
+        view = build_home_view({
+            "available": True, "waking": True, "waking_notice": True,
+            "stale": True, "age_s": 200,
+            "soc": 60, "pp": 1800, "gp": 200, "bp": 0, "lp": 1600,
+        })
+        self.assertTrue(view["available"])
+        self.assertTrue(view["stale"])
+        self.assertEqual(view["status"]["level"], "stale")
+        self.assertEqual(view["status"]["label"], "Stale · 3m 20s")
         self.assertEqual(view["solar"]["w"], 1800)
 
     def test_stale_age_uses_minutes_after_sixty(self):
