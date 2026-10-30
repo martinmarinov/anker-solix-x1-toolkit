@@ -11,7 +11,7 @@ Read [`../REPORT.md`](../REPORT.md) for the protocol evidence behind every call.
 app/
   anker_client.py     protocol client: login, sites, devices, plan, write, validation
   power_flow.py       pure edge/aggregate parsing -> signed solar/grid/battery/home W
-  solar_forecast.py   single-reading half-sine solar model
+  solar_forecast.py   half-sine solar model, scaled from an averaged or instant observation
   eta.py              clock and calendar labels for the estimate
   battery_estimate.py mode selection, load compensation, charge-cap energy math
   limits.py           dynamic charge-limit extraction and the 6 kW fallback
@@ -105,15 +105,16 @@ capacity, never offered as a plan target.
   looping motion; fill-height, colours and flow-opacity changes are short transitions. It
   stops when idle/unavailable and is disabled by `prefers-reduced-motion`.
 - **Battery ETA is source-aware.** The signed ten-minute battery average decides
-  idle/charge/discharge; the instantaneous solar/grid readings decide which formula to use.
-  Discharge and grid charging keep the existing linear formulas. Solar charging inside
-  07:00–18:00 uses a half-sine curve scaled from the current PV reading, subtracts the
-  ten-minute house load, and clips at the runtime inverter cap. The cap comes from the live
-  EMS field when present, then the device attribute, then a named **6 kW** fallback; it is
-  never a constant in the formula. On the tested A5102 the realtime frame and the attribute
-  APIs exposed **no** charge cap, so the 6 kW fallback is the path in use; a just-saved plan
-  supplies its written value until the next read. If the curve cannot fill the pack, the
-  caption shows the expected SOC at 18:00 (`87% by 18:00`) instead of a fake finish time.
+  idle/charge/discharge; the ten-minute averaged PV (instant fallback while the mean is
+  missing) and the instantaneous grid readings decide which formula to use. Discharge and
+  grid charging keep the existing linear formulas. Solar charging inside 07:00–18:00 uses a
+  half-sine curve scaled from the averaged PV, subtracts the ten-minute house load, and clips
+  at the runtime inverter cap. The cap comes from the live EMS field when present, then the
+  device attribute, then a named **6 kW** fallback; it is never a constant in the formula. On
+  the tested A5102 the realtime frame and the attribute APIs exposed **no** charge cap, so the
+  6 kW fallback is the path in use; a just-saved plan supplies its written value until the
+  next read. If the curve cannot fill the pack, the caption shows the expected SOC at 18:00
+  (`87% by 18:00`) instead of a fake finish time.
   Only the estimate is averaged; the card’s watts/state, flows and meters stay instantaneous.
   The estimate’s clock is the actual target time, and estimates over 12 h add `tomorrow` or
   the target calendar date (`Sun 01 Nov 08:38`) on the server.
@@ -333,9 +334,11 @@ headers or tokens.
 ## 9. Known limitations
 
 - **The solar ETA is a forecast, not a measurement.** It assumes a fixed 07:00–18:00
-  half-sine and a constant house load; outside that window, or below 50 W PV, it falls back
-  to the linear battery rate. The charge cap comes from the live frame or device attribute
-  when readable, otherwise a 6 kW fallback. It never changes charging.
+  half-sine and a constant house load; outside that window, or below 50 W averaged PV, it
+  falls back to the linear battery rate. The ten-minute mean is treated as the current PV
+  value, so a small sunrise/evening phase bias is accepted. The charge cap comes from the live
+  frame or device attribute when readable, otherwise a 6 kW fallback. It never changes
+  charging.
 - **No summary metrics or weather yet.** The previous mockup's "Today's Production / CO₂ /
   Earnings" strip and the weather row are intentionally absent; there is no verified Anker
   stats source in this build.

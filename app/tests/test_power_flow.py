@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from power_flow import (  # noqa: E402
     battery_charge_w, battery_discharge_w, battery_display_w, battery_net_w,
     grid_display_w, grid_export_w, grid_import_w, grid_net_w, home_w,
-    has_power_fields, solar_w,
+    has_power_fields, has_solar_fields, solar_w,
 )
 
 
@@ -62,6 +62,14 @@ class PowerFlowTests(unittest.TestCase):
         self.assertFalse(has_power_fields({"available": True}))
         self.assertTrue(has_power_fields({"pp": 0}))
         self.assertTrue(has_power_fields({"p2lp": 0}))
+
+    def test_has_solar_fields(self):
+        self.assertFalse(has_solar_fields(None))
+        self.assertFalse(has_solar_fields({"bp": -1000, "soc": 50}))
+        self.assertTrue(has_solar_fields({"pp": 0}))
+        self.assertTrue(has_solar_fields({"p2lp": 0}))
+        self.assertTrue(has_solar_fields({"pp": None, "p2bp": 0}))
+        self.assertFalse(has_solar_fields({"pp": None}))
 
 
 if __name__ == "__main__":

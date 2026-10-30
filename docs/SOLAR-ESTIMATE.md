@@ -8,13 +8,16 @@ afternoon, so a rate sampled at 10:30 does not hold until sunset. This change ad
 solar-curve mode for the charging case and leaves the existing discharge and grid-charge
 formulas untouched.
 
-The model uses one live PV reading and the local time. It does **not** use location, weather,
-season, panel orientation or historical generation. It is deliberately a rough estimate.
+The model uses one live PV observation and the local time. The observation is the ten-minute
+time-weighted mean from the live feed, with the instantaneous reading as a fallback. It does
+**not** use location, weather, season, panel orientation or historical generation. It is
+deliberately a rough estimate.
 
 ## When each formula applies
 
-`B_w` is the signed ten-minute average battery power, positive while charging. `S_w` is
-instantaneous PV, `G_w` grid import and `X_w` grid export. `t0` is the site-local decimal hour.
+`B_w` is the signed ten-minute average battery power, positive while charging. `S̄_w` is the
+ten-minute averaged PV (instant fallback), `S_w` the instantaneous PV, `G_w` grid import and
+`X_w` grid export. `t0` is the site-local decimal hour.
 
 | # | Condition | Mode | ETA |
 |---|---|---|---|
@@ -24,7 +27,7 @@ instantaneous PV, `G_w` grid import and `X_w` grid export. `t0` is the site-loca
 | 3 | `B_w == 0`, SOC below 100 | `idle` | none |
 | 4 | `B_w == 0`, SOC at 100 | `full` | `Full` |
 | 5 | `B_w > 0`, `G_w > 50 W` | `grid` | existing: `deficit / (rate_kw × 0.95)` |
-| 6 | `B_w > 0`, `7 < t0 < 18`, `S_w > 50 W`, `X_w <= 50 W` | `solar` | curve below |
+| 6 | `B_w > 0`, `7 < t0 < 18`, `S̄_w > 50 W`, `X_w <= 50 W` | `solar` | curve below |
 | 7 | `B_w > 0`, anything else | `charging` | linear fallback from `B_w` |
 
 The 50 W gates are **thresholds**, not measurements: a discharge below 50 W is treated as
@@ -32,11 +35,11 @@ idle so inverter noise does not produce a multi-day ETA. Grid input above 50 W w
 solar, because the battery may be charging from the grid even when PV is present. Outside
 07:00–18:00 the curve is not defined, so charging is linear again.
 
-Only the estimate uses the 50 W idle gate and the ten-minute average for a displayed time.
-`batt_avg_*` and `load_avg_kw` are averaged diagnostics, never card power. The battery card’s
-watts, state, label and SOC, every flow, and the solar/grid/home cards still follow
-instantaneous telemetry, so the card can read “Discharging” while the ETA is hidden or while
-the averaged estimate says it is charging.
+The estimator consumes the battery, house-load and PV means from the live feed's shared
+600 s window. `batt_avg_*`, `load_avg_kw` and `solar_avg_kw` are exposed for diagnostics and
+are never rendered as card power. The battery card’s watts, state, label and SOC, every flow,
+and the solar/grid/home cards still follow instantaneous telemetry, so the card can read
+“Discharging” while the ETA is hidden or while the averaged estimate says it is charging.
 
 ## The solar curve
 
@@ -44,16 +47,42 @@ The supplied model is a symmetric half-sine between 07:00 and 18:00, peaking at 
 
 ```
 s(t)   = sin(pi * (t - 7) / 11)                 inside 07:00..18:00, else 0
-P_peak = 0.5 * min(P_obs / s(t0), 2.5 * P_obs)
+P_peak = 0.5 * min(P̄_obs / s(t0), 2.5 * P̄_obs)
 P(t)   = P_peak * s(t)                         W
 E(u,v) = P_peak * 11 / (1000 * pi) *
          [cos(pi*(A-7)/11) - cos(pi*(B-7)/11)]  kWh
 ```
 
-`A = max(7,u)`, `B = min(18,v)`. `P_obs` is instantaneous PV. The 2.5× cap is applied before
-the 0.5 risk factor, matching the source model. `SOLAR_RISK_FACTOR` and
-`SOLAR_MAX_PEAK_MULTIPLIER` are named constants in `app/solar_forecast.py`; there is no UI or
-environment override.
+`A = max(7,u)`, `B = min(18,v)`. `P̄_obs` is the ten-minute averaged PV in W (with the
+instantaneous reading as fallback). The 2.5× cap is applied before the 0.5 risk factor,
+matching the source model. `SOLAR_RISK_FACTOR` and `SOLAR_MAX_PEAK_MULTIPLIER` are named
+constants in `app/solar_forecast.py`; there is no UI or environment override.
+
+## Averaged observation
+
+`app/live.py` keeps a 600 s deque alongside the battery/load samples. Each frame stores PV
+as `solar_w(snap)/1000` only when the frame carries a PV field. `solar_avg_kw` is the
+time-weighted trapezoidal mean over that same window, using the same cutoff and weighting as
+the battery average; an interval with a missing PV endpoint contributes nothing. It is
+rounded to three decimals.
+
+The estimator treats the mean as the PV value at `t0` and scales the half-sine through
+`s(t0)` exactly as before. That keeps steady-state numbers unchanged, but a rising morning
+mean is slightly below the instantaneous value at `t0`, and a falling afternoon mean is
+slightly above it. The phase bias around sunrise and sunset is accepted; only the observation
+is averaged, not the curve.
+
+Fallback rules:
+
+- a frame without a PV field is skipped, not averaged as 0 W;
+- no mean yet → the instantaneous `S_w` is used;
+- mean `0.0` → a real zero, so the solar branch is not taken even if `S_w` spikes;
+- mean negative → clamped to 0;
+- short history → whatever mean exists is used as-is.
+
+The same observation drives the 50 W solar gate and the curve. Grid import/export gates
+remain instantaneous. The load energy-balance fallback also stays instantaneous because it
+balances live flows.
 
 ## House load and inverter cap
 
@@ -179,6 +208,8 @@ name; `phase` and `source` describe the averaged estimate that produced the time
     "needed_kwh": 7.89,
     "load_kw": 0.5,
     "peak_kw": 2.377,
+    "observed_kw": 4.0,
+    "observed_source": "avg",
     "risk_factor": 0.5,
     "reachable": true,
     "capped": false,
@@ -218,7 +249,7 @@ clock itself. `data-estimate` on the Home stage still carries the legacy mode fo
 
 ## Worked checks
 
-At `P_obs = 4000 W`, 10:30, `L = 0.5 kW`, 15 kWh / 50 % SOC / 5 % reserve / 0.95 efficiency:
+At `P̄_obs = 4000 W` (a steady mean or point reading), 10:30, `L = 0.5 kW`, 15 kWh / 50 % SOC / 5 % reserve / 0.95 efficiency:
 
 | Resolved cap | Result |
 |---|---|
@@ -228,7 +259,7 @@ At `P_obs = 4000 W`, 10:30, `L = 0.5 kW`, 15 kWh / 50 % SOC / 5 % reserve / 0.95
 | `1.0 kW` | not enough, **86.5 % → 87 % at 18:00** |
 | `0`/negative | treated as unavailable, falls back to 6 kW |
 
-At `P_obs = 1200 W`, same load and battery, the model reports **50.2 % at 18:00**: the
+At `P̄_obs = 1200 W`, same load and battery, the model reports **50.2 % at 18:00**: the
 surplus is too small to replace the house load and fill the pack. The risk factor and the
 load subtraction are deliberately conservative; the value can be tuned in one place.
 
@@ -241,6 +272,9 @@ load subtraction are deliberately conservative; the value can be tuned in one pl
   it as a cap is conservative.
 - **The curve is fixed to 07:00–18:00.** Before and after that window the fallback is linear,
   so late solar charging is shown at its current rate rather than extrapolated.
+- **The PV mean is treated as the current value.** Around sunrise and sunset the ten-minute
+  mean lags a rising or falling curve, so the inferred peak is slightly low in the morning and
+  slightly high in the late afternoon. This is accepted and documented above.
 - **The house load is assumed constant** over the remaining daylight. A large load change
   moves the real finish time.
 - **This is an estimate only.** It does not publish a wake, change a plan or set a limit.

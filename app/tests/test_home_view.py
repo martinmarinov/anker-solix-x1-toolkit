@@ -16,6 +16,7 @@ class HomeViewTests(unittest.TestCase):
         view = build_home_view({"available": False, "reason": "connecting"})
         self.assertFalse(view["available"])
         self.assertIsNone(view["solar"]["w"])
+        self.assertIsNone(view["solar"]["avg_kw"])
         self.assertIsNone(view["grid"]["kw"])
         self.assertEqual(view["status"]["level"], "waiting")
         self.assertFalse(any(f["active"] for f in view["flows"].values()))
@@ -235,6 +236,33 @@ class HomeViewTests(unittest.TestCase):
         self.assertIsNone(view["battery"]["hours_to_empty"])
         self.assertEqual(estimate["solar"]["as_of"], "10:30")
         self.assertFalse(estimate["solar"]["capped"])
+        self.assertIsNone(view["solar"]["avg_kw"])
+        self.assertEqual(estimate["solar"]["observed_source"], "instant")
+
+    def test_solar_estimate_uses_the_averaged_pv(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(
+            self._solar_snapshot(ts, pp=1000, solar_avg_kw=4.0),
+            tz="Europe/London")
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "solar")
+        self.assertAlmostEqual(estimate["hours"], 4.653, places=2)
+        self.assertEqual(estimate["clock"], "15:09")
+        self.assertEqual(view["solar"]["w"], 1000)
+        self.assertEqual(view["solar"]["avg_kw"], 4.0)
+        self.assertEqual(estimate["solar"]["observed_kw"], 4.0)
+        self.assertEqual(estimate["solar"]["observed_source"], "avg")
+
+    def test_zero_average_keeps_the_card_instant_but_blocks_solar(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(
+            self._solar_snapshot(ts, pp=4000, solar_avg_kw=0.0),
+            tz="Europe/London")
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "charging")
+        self.assertEqual(estimate["reason"], "no_usable_solar")
+        self.assertEqual(view["solar"]["w"], 4000)
+        self.assertEqual(view["solar"]["avg_kw"], 0.0)
 
     def test_solar_estimate_respects_site_timezone_window(self):
         ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()

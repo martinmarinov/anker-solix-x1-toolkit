@@ -7,12 +7,13 @@ house is importing/exporting, charging/discharging, and idle.  It is pure and
 has no Anker dependency, which keeps it easy to unit-test.
 
 The battery ETA is delegated to :mod:`battery_estimate`, which uses the
-ten-minute signed average for the state and the instantaneous solar/grid
-readings for the solar-curve branch.  Everything the cards display (battery
-watts/state, flows, solar/grid/home and the shimmer) stays on instantaneous
-telemetry; only ``battery.estimate``, its ``hours_to_*`` aliases and the
-``batt_avg_*``/``load_avg_kw`` diagnostics use the average, and those
-diagnostics are never rendered as card power.
+ten-minute signed average for the state, the ten-minute averaged PV (with an
+instantaneous fallback) and the instantaneous grid readings for the solar-curve
+branch.  Everything the cards display (battery watts/state, flows, solar/grid/home
+and the shimmer) stays on instantaneous telemetry; only ``battery.estimate``, its
+``hours_to_*`` aliases and the ``batt_avg_*``/``load_avg_kw``/``solar_avg_kw``
+diagnostics use the averages, and those diagnostics are never rendered as card
+power.
 """
 from __future__ import annotations
 
@@ -129,7 +130,8 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
             "stale": False,
             "age_s": age_s,
             "soc": None,
-            "solar": {"w": None, "kw": None, "state": "unavailable"},
+            "solar": {"w": None, "kw": None, "state": "unavailable",
+                      "avg_kw": None},
             "grid": {"w": None, "kw": None, "state": "unavailable", "label": "Unavailable"},
             "battery": {"w": None, "kw": None, "state": "unavailable",
                         "soc": None, "label": "Unavailable",
@@ -157,6 +159,7 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
         }
 
     solar_value = solar_w(snap)
+    solar_avg_kw = number(snap.get("solar_avg_kw"))
     grid_in = grid_import_w(snap)
     grid_out = grid_export_w(snap)
     grid_net = grid_net_w(snap)
@@ -209,6 +212,7 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
         battery_avg_net_w=(avg_net_kw * 1000.0 if avg_net_kw is not None else None),
         battery_avg_kw=average_kw,
         solar_w=solar_value,
+        solar_avg_kw=solar_avg_kw,
         grid_import_w=grid_in,
         grid_export_w=grid_out,
         home_w=load_w,
@@ -246,7 +250,8 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
         "stale": stale,
         "age_s": age_s,
         "soc": soc,
-        "solar": {**_power(solar_value), "state": solar_state},
+        "solar": {**_power(solar_value), "state": solar_state,
+                  "avg_kw": solar_avg_kw},
         "grid": {**_power(grid_w), "state": grid_state, "label": grid_label},
         "battery": {**_power(batt_w), "state": batt_state, "soc": soc,
                     "label": batt_label,

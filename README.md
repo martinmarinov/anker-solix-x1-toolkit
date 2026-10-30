@@ -25,13 +25,13 @@ follow the active meter band; values, units and icons stay page ink.</em></p>
   A drawer slider selects a **5–60 s** MQTT cadence; the choice persists across sign-out and
   account switches in its own preference cookie. Stale thresholds follow the cadence.
 - **Solar-aware battery ETA.** The signed ten-minute battery average sets idle/charge/discharge;
-  instantaneous PV and grid readings choose the formula. Discharge and grid charging stay
-  linear. Solar charging between 07:00 and 18:00 uses a single-reading solar curve, subtracts
-  the house load and clips at the runtime inverter cap. When the sun cannot fill the pack, the
-  dashboard shows the expected SOC at 18:00 instead of a false finish time. Estimates over
-  12 hours carry the target’s calendar hint (`tomorrow 16:30`, `Sat 04 Jul 02:38`); shorter
-  ones print only the time. See
-  [`docs/SOLAR-ESTIMATE.md`](docs/SOLAR-ESTIMATE.md).
+  the ten-minute averaged PV (instant fallback) and instantaneous grid readings choose the
+  formula. Discharge and grid charging stay linear. Solar charging between 07:00 and 18:00
+  scales a solar curve from that averaged PV, subtracts the house load and clips at the runtime
+  inverter cap. When the sun cannot fill the pack, the dashboard shows the expected SOC at
+  18:00 instead of a false finish time. Estimates over 12 hours carry the target’s calendar
+  hint (`tomorrow 16:30`, `Sat 04 Jul 02:38`); shorter ones print only the time. The cards stay
+  instantaneous. See [`docs/SOLAR-ESTIMATE.md`](docs/SOLAR-ESTIMATE.md).
 - **Day / night backdrop.** Between **19:00 and 20:00** the scene crossfades from the daylight
   house to a moonlit copy with lit windows and stars, and between **06:00 and 07:00** it fades
   back. It follows the site timezone and the existing once-a-second clock; the UI palette does

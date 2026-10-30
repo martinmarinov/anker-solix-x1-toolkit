@@ -284,11 +284,13 @@ legacy formula name. `phase` is the averaged state (`unavailable`, `idle`, `full
 `discharging` or `charging`) and `source` is `none`, `battery`, `solar`, `grid`, `mixed` or
 `unknown`.
 
-Only this estimate uses the ten-minute average for a displayed time;
-`batt_avg_net_kw`, `batt_avg_kw` and `load_avg_kw` are averaged diagnostics, not card
-power. `view.battery.w`, `state`, `label`, `soc`, `available_kwh`, every flow and the
-`solar`/`grid`/`home` cards stay on instantaneous telemetry, so the battery shimmer can
-disagree with the averaged ETA by design.
+Only this estimate uses the ten-minute averages for a displayed time; the battery,
+house-load and PV means share the same 600 s window. `batt_avg_net_kw`, `batt_avg_kw`,
+`load_avg_kw` and `solar_avg_kw` are diagnostics, not card power. `view.battery.w`, `state`,
+`label`, `soc`, `available_kwh`, every flow and the `solar`/`grid`/`home` cards stay on
+instantaneous telemetry, so the battery shimmer can disagree with the averaged ETA by
+design. `view.solar.w` is instantaneous; `view.solar.avg_kw` is the PV mean used by the
+estimate.
 
 ```json
 {
@@ -316,6 +318,8 @@ disagree with the averaged ETA by design.
     "needed_kwh": 7.89,
     "load_kw": 0.5,
     "peak_kw": 2.377,
+    "observed_kw": 4.0,
+    "observed_source": "avg",
     "risk_factor": 0.5,
     "reachable": true,
     "capped": false,
@@ -364,8 +368,13 @@ actual target time-of-day:
   device attributes or the site power limit (`device_attrs.<key>`, `power_limits.<key>`) → `default_6kw`. `plan-save` is a temporary
   source set immediately after a successful schedule save; the next frame or read replaces it.
   `capped` is true only when the limit actually clips the solar surplus.
-- `batt_avg_net_kw` (signed), `load_avg_kw` and the legacy `batt_avg_kw` are in the live
-  snapshot. The averages cover ten minutes and are time-weighted.
+- `solar.observed_kw` is the PV observation that scaled the curve. `solar.observed_source`
+  is `avg` when the ten-minute mean was used and `instant` when the estimator fell back to
+  the instantaneous reading.
+- `batt_avg_net_kw` (signed), `load_avg_kw`, `solar_avg_kw` and the legacy `batt_avg_kw` are
+  in the live snapshot. The averages cover ten minutes and are time-weighted. The estimator
+  uses `solar_avg_kw` for the 50 W solar gate and the curve, falls back to the instantaneous
+  reading when it is `null`, and treats `0.0` as a real zero.
 
 See [`SOLAR-ESTIMATE.md`](SOLAR-ESTIMATE.md) for the mode table and formulas.
 

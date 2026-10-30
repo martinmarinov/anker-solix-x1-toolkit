@@ -30,7 +30,7 @@ import paho.mqtt.client as mqtt
 
 from anker_client import AnkerClient
 from limits import fallback_limit, limit_from_ems
-from power_flow import battery_net_w, home_w
+from power_flow import battery_net_w, has_solar_fields, home_w, solar_w
 
 FLOW_KEYS = ("p2lp", "p2bp", "p2gp", "g2lp", "g2bp", "b2lp", "b2gp")
 POWER_KEYS = ("pp", "gp", "bp", "lp")
@@ -196,7 +196,7 @@ class LiveFeed:
         self._waking_since: float | None = None
         self._last_trigger_error: str | None = None
         self.site = site
-        self._battery_samples: deque = deque()
+        self._samples: deque = deque()
         self._charge_limit: dict | None = None
         self._device_limit: dict | None = None
         self._last_frame_keys: tuple = ()
@@ -235,27 +235,30 @@ class LiveFeed:
     # -- read path -----------------------------------------------------
 
     def _averages(self, now: float) -> dict:
-        """Time-weighted signed battery and house-load averages.
+        """Time-weighted signed battery, house-load and PV averages.
 
         Frames do not arrive on a fixed grid: a concurrent 5 s wake can be
         mixed with our 60 s window. Weighting by elapsed time keeps the
-        estimate stable across both.  Load samples can be missing; only
-        intervals with both endpoints present contribute to that average.
+        estimate stable across both.  Load and PV samples can be missing;
+        only intervals with both endpoints present contribute to a given
+        average.
         """
         cutoff = now - BATTERY_AVG_WINDOW_S
-        while self._battery_samples and self._battery_samples[0][0] < cutoff:
-            self._battery_samples.popleft()
-        samples = list(self._battery_samples)
+        while self._samples and self._samples[0][0] < cutoff:
+            self._samples.popleft()
+        samples = list(self._samples)
         if not samples:
             return {"batt_avg_net_kw": None, "batt_avg_kw": None,
-                    "load_avg_kw": None}
+                    "load_avg_kw": None, "solar_avg_kw": None}
         if len(samples) == 1:
             net = samples[0][1]
             load = samples[0][2]
+            solar = samples[0][3]
             return {
                 "batt_avg_net_kw": round(net, 3),
                 "batt_avg_kw": round(abs(net), 2),
                 "load_avg_kw": round(load, 3) if load is not None else None,
+                "solar_avg_kw": round(solar, 3) if solar is not None else None,
             }
 
         def weighted(index: int):
@@ -278,10 +281,12 @@ class LiveFeed:
         if net is None:
             net = samples[-1][1]
         load = weighted(2)
+        solar = weighted(3)
         return {
             "batt_avg_net_kw": round(net, 3),
             "batt_avg_kw": round(abs(net), 2),
             "load_avg_kw": round(load, 3) if load is not None else None,
+            "solar_avg_kw": round(solar, 3) if solar is not None else None,
         }
 
     def _cap_fields(self, now: float) -> dict:
@@ -466,7 +471,7 @@ class LiveFeed:
                 "waking": self._waking_since is not None,
                 "pending_interval_s": self._pending_interval_s,
                 "last_trigger_error": self._last_trigger_error,
-                "battery_samples": len(self._battery_samples),
+                "battery_samples": len(self._samples),
                 "last_frame_keys": list(self._last_frame_keys)[:64],
                 "charge_limit_source": cap.get("charge_limit_source"),
                 "charge_limit_kw": cap.get("charge_limit_kw"),
@@ -618,6 +623,8 @@ class LiveFeed:
         )
         net_kw = battery_net_w(snap) / 1000.0
         load_kw = home_w(snap) / 1000.0
+        solar_kw = (solar_w(snap) / 1000.0
+                    if has_solar_fields(snap) else None)
         with self.lock:
             if self._last_frame_at:
                 gap = now - self._last_frame_at
@@ -629,7 +636,7 @@ class LiveFeed:
             self._waking_since = None
             self._last_trigger_error = None
             self._last_frame_keys = tuple(keys)
-            self._battery_samples.append((now, net_kw, load_kw))
+            self._samples.append((now, net_kw, load_kw, solar_kw))
             self._averages(now)
             limit_w = snap.pop("charge_limit_w", None)
             limit_source = snap.pop("charge_limit_source", None)

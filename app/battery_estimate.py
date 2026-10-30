@@ -5,7 +5,8 @@ Mode rules (agreed with the user):
 * signed ten-minute average battery power decides idle/charge/discharge;
 * below 50 W discharge is idle, with no ETA;
 * charging with more than 50 W grid import uses the legacy linear formula;
-* charging from solar inside 07:00-18:00 uses the single-reading solar curve;
+* charging from solar inside 07:00-18:00 uses the solar curve scaled from
+  ten-minute averaged PV, with an instantaneous fallback;
 * outside that window, or with no usable solar, fall back to linear.
 
 The solar branch subtracts a constant house load and clips the charge at the
@@ -187,7 +188,8 @@ def _crossing_morning(curve, load_kw: float) -> float:
 def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
                     reserve: float, load_kw: float, cap_kw: float,
                     cap_source: str, efficiency: float,
-                    observed_rate_kw: float, now=None) -> dict:
+                    observed_rate_kw: float, observed_kw: float,
+                    observed_source: str, now=None) -> dict:
     """Build the solar-mode estimate and diagnostics."""
     load_kw = max(0.0, load_kw)
     cap_kw = _number(cap_kw)
@@ -222,6 +224,8 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
         "needed_kwh": round(q_ac, 2),
         "load_kw": round(load_kw, 3),
         "peak_kw": round(peak_kw, 3),
+        "observed_kw": round(observed_kw, 3),
+        "observed_source": observed_source,
         "risk_factor": curve.risk_factor,
         "reachable": bool(e_max + 1e-6 >= q_ac),
         "capped": bool(e_max + 1e-6 < uncapped_max),
@@ -267,12 +271,18 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
 
 def estimate_battery(*, soc, nominal_kwh, reserve_soc,
                      battery_net_w=None, battery_avg_net_w=None,
-                     battery_avg_kw=None, solar_w=0, grid_import_w=0,
-                     grid_export_w=0, home_w=0, load_avg_kw=None,
-                     now_hour=None, now_dt=None, charge_limit_kw=None,
+                     battery_avg_kw=None, solar_w=0, solar_avg_kw=None,
+                     grid_import_w=0, grid_export_w=0, home_w=0,
+                     load_avg_kw=None, now_hour=None, now_dt=None,
+                     charge_limit_kw=None,
                      charge_limit_source="runtime",
                      efficiency=BATTERY_EFFICIENCY) -> dict:
     """Return the estimate mode and, when calculable, its duration and clock.
+
+    ``solar_avg_kw`` is the ten-minute time-weighted PV mean.  When present it
+    is the single observation for both the 50 W solar gate and the curve;
+    otherwise the estimator falls back to instantaneous ``solar_w``.  The
+    instantaneous value still feeds the load energy-balance fallback.
 
     ``now_dt`` supplies the calendar date for the label; ``now_hour`` remains
     the decimal local hour used by the solar-curve window.  This is the only
@@ -323,12 +333,20 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
                        rate_kw=rate_kw, hours=None, now=now, now_hour=hour,
                        reason="idle_below_50w")
 
-    # b_w > 0: charging.  The averaged rate is the ETA input; the momentary
-    # solar/grid readings only choose the formula.
-    solar_value = max(0.0, _number(solar_w) or 0.0)
+    # b_w > 0: charging.  The averaged rate is the ETA input; the averaged PV
+    # (instant fallback) scales the curve, while the instantaneous grid
+    # readings still choose the formula.
+    solar_instant = max(0.0, _number(solar_w) or 0.0)
+    solar_avg = _number(solar_avg_kw)
+    if solar_avg is None:
+        solar_obs_w = solar_instant
+        observed_source = "instant"
+    else:
+        solar_obs_w = max(0.0, solar_avg) * 1000.0
+        observed_source = "avg"
     grid_in = max(0.0, _number(grid_import_w) or 0.0)
     grid_out = max(0.0, _number(grid_export_w) or 0.0)
-    solar_source = "solar" if solar_value > SOLAR_MIN_OBS_W else "none"
+    solar_source = "solar" if solar_obs_w > SOLAR_MIN_OBS_W else "none"
 
     if grid_in > GRID_MODE_W:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
@@ -346,7 +364,7 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
                        reason="outside_solar_window",
                        eta_kind="to_full" if hours is not None else "none")
 
-    if solar_value <= SOLAR_MIN_OBS_W:
+    if solar_obs_w <= SOLAR_MIN_OBS_W:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
         return _result(mode="charging", phase="charging", source="none",
                        rate_kw=rate_kw, hours=hours, now=now, now_hour=hour,
@@ -362,12 +380,12 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
 
     load_kw = _number(load_avg_kw)
     if load_kw is None:
-        load_kw = (solar_value + grid_in - grid_out - max(0.0, b_w)) / 1000.0
+        load_kw = (solar_instant + grid_in - grid_out - max(0.0, b_w)) / 1000.0
     load_kw = max(0.0, load_kw)
 
     try:
         curve = create_solar_curve(
-            solar_value, hour,
+            solar_obs_w, hour,
             risk_factor=SOLAR_RISK_FACTOR,
             max_peak_multiplier=SOLAR_MAX_PEAK_MULTIPLIER)
     except ValueError:
@@ -384,4 +402,6 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
     return _solar_estimate(
         curve=curve, t0=hour, soc=soc, nominal=nominal, reserve=reserve,
         load_kw=load_kw, cap_kw=cap, cap_source=charge_limit_source,
-        efficiency=efficiency, observed_rate_kw=rate_kw, now=now)
+        efficiency=efficiency, observed_rate_kw=rate_kw,
+        observed_kw=solar_obs_w / 1000.0, observed_source=observed_source,
+        now=now)

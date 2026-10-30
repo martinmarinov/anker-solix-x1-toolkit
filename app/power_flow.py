@@ -20,6 +20,7 @@ from __future__ import annotations
 ACTIVE_W = 5.0
 POWER_KEYS = ("pp", "gp", "bp", "lp")
 FLOW_KEYS = ("p2lp", "p2bp", "p2gp", "g2lp", "g2bp", "b2lp", "b2gp")
+SOLAR_KEYS = ("pp", "p2lp", "p2bp", "p2gp")
 
 
 def number(value):
@@ -46,6 +47,16 @@ def has_power_fields(snap: dict | None) -> bool:
     if not isinstance(snap, dict):
         return False
     return any(snap.get(k) is not None for k in POWER_KEYS + FLOW_KEYS)
+
+
+def has_solar_fields(snap: dict | None) -> bool:
+    """True when a frame carries a usable PV observation.
+
+    ``solar_w`` treats a missing field as zero, so the average must test
+    presence first: a partial frame is skipped, not averaged as 0 W.
+    """
+    return isinstance(snap, dict) and any(
+        snap.get(k) is not None for k in SOLAR_KEYS)
 
 
 def solar_w(snap: dict) -> float:

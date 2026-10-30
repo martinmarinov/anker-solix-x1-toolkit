@@ -1,7 +1,9 @@
-"""Portable single-reading solar forecast.
+"""Portable solar forecast scaled from one PV observation.
 
 This is the model attached to the solar-ETA plan: a symmetric half-sine
-between 07:00 and 18:00, peak at 12:30, scaled from one live PV reading.
+between 07:00 and 18:00, peak at 12:30, scaled from one observed PV power.
+The observation may be an instantaneous reading or a ten-minute mean; the
+caller passes it at ``t0`` and the model treats it as the value there.
 
     s(t)   = sin(pi * (t - 7) / 11)                   inside 07:00..18:00
     P_peak = r * min(P_obs / s(t0), M * P_obs)        r = 0.5, M = 2.5
@@ -64,11 +66,13 @@ def create_solar_curve(power_w: float, hour: float,
                        risk_factor: float = SOLAR_RISK_FACTOR,
                        max_peak_multiplier: float = SOLAR_MAX_PEAK_MULTIPLIER
                        ) -> SolarCurve:
-    """Scale one live reading into a curve.
+    """Scale one PV observation into a curve.
 
-    The observation must be strictly inside the daylight window; at the
-    boundaries the shape is zero and a peak cannot be derived.  The cap is
-    applied before the risk factor, exactly as in the document.
+    ``power_w`` is either an instantaneous reading or a window mean; the
+    estimator passes the ten-minute mean when it has one.  The observation
+    must be strictly inside the daylight window; at the boundaries the shape
+    is zero and a peak cannot be derived.  The cap is applied before the risk
+    factor, exactly as in the document.
     """
     power = _finite(power_w, "power_w")
     hour = _finite(hour, "hour")

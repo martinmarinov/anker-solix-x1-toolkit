@@ -169,6 +169,59 @@ class SolarTests(unittest.TestCase):
         self.assertAlmostEqual(result["solar"]["load_kw"], 3.3, places=3)
 
 
+class AveragedSolarTests(unittest.TestCase):
+    def test_average_replaces_instant_for_the_curve(self):
+        result = estimate(solar_w=1000, solar_avg_kw=4.0)
+        self.assertEqual(result["mode"], "solar")
+        self.assertAlmostEqual(result["hours"], 4.653, places=2)
+        self.assertEqual(result["clock"], "15:09")
+        self.assertEqual(result["solar"]["observed_kw"], 4.0)
+        self.assertEqual(result["solar"]["observed_source"], "avg")
+
+    def test_average_wins_over_an_instant_spike(self):
+        result = estimate(solar_w=4000, solar_avg_kw=1.2)
+        self.assertEqual(result["eta"]["kind"], "to_soc")
+        self.assertAlmostEqual(result["soc_final"], 50.2, places=1)
+        self.assertEqual(result["solar"]["observed_kw"], 1.2)
+        self.assertEqual(result["solar"]["observed_source"], "avg")
+
+    def test_average_drives_the_50_w_gate(self):
+        result = estimate(solar_w=4000, solar_avg_kw=0.04)
+        self.assertEqual(result["mode"], "charging")
+        self.assertEqual(result["reason"], "no_usable_solar")
+        self.assertAlmostEqual(result["hours"], 12.406015, places=5)
+
+    def test_average_can_enable_solar_when_instant_is_zero(self):
+        result = estimate(solar_w=0, solar_avg_kw=4.0)
+        self.assertEqual(result["mode"], "solar")
+        self.assertAlmostEqual(result["hours"], 4.653, places=2)
+
+    def test_missing_average_falls_back_to_instant(self):
+        result = estimate(solar_w=4000, solar_avg_kw=None)
+        self.assertAlmostEqual(result["hours"], 4.653, places=2)
+        self.assertEqual(result["solar"]["observed_source"], "instant")
+
+    def test_numeric_string_average_is_accepted(self):
+        result = estimate(solar_w=1000, solar_avg_kw="4.0")
+        self.assertEqual(result["solar"]["observed_kw"], 4.0)
+        self.assertEqual(result["solar"]["observed_source"], "avg")
+
+    def test_invalid_average_falls_back_to_instant(self):
+        for bad in (float("nan"), float("inf"), "bad"):
+            result = estimate(solar_w=4000, solar_avg_kw=bad)
+            self.assertEqual(result["solar"]["observed_source"], "instant")
+            self.assertAlmostEqual(result["hours"], 4.653, places=2)
+
+    def test_negative_average_clamps_to_zero(self):
+        result = estimate(solar_w=4000, solar_avg_kw=-1.0)
+        self.assertEqual(result["mode"], "charging")
+        self.assertEqual(result["reason"], "no_usable_solar")
+
+    def test_load_fallback_still_uses_instant_solar(self):
+        result = estimate(solar_w=1000, solar_avg_kw=4.0, load_avg_kw=None)
+        self.assertAlmostEqual(result["solar"]["load_kw"], 0.3, places=3)
+
+
 class SlowEtaTests(unittest.TestCase):
     def test_thirty_hour_discharge_says_tomorrow(self):
         result = estimate(battery_avg_net_w=-213.75)
@@ -237,6 +290,7 @@ class SchemaTests(unittest.TestCase):
             ("export", dict(solar_w=1200, grid_export_w=60)),
             ("solar_reachable", dict(solar_w=4000)),
             ("solar_partial", dict(solar_w=1200)),
+            ("solar_average", dict(solar_w=1000, solar_avg_kw=4.0)),
         ]
 
     def test_every_branch_has_the_same_schema(self):

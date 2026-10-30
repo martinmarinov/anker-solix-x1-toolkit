@@ -63,7 +63,7 @@ def make_feed(interval: int = 5, snapshot: dict | None = None,
     feed._pending_interval_s = None
     feed._waking_since = None
     feed._last_trigger_error = None
-    feed._battery_samples = deque()
+    feed._samples = deque()
     feed.site = None
     feed._charge_limit = None
     feed._device_limit = None
@@ -242,29 +242,47 @@ class LiveFeedTests(unittest.TestCase):
     def test_battery_average_is_time_weighted(self):
         feed = make_feed(interval=60)
         now = time.time()
-        feed._battery_samples.extend([
-            (now - 400, 1.0, 0.4), (now - 200, 3.0, 0.6), (now, 5.0, 0.8)])
+        feed._samples.extend([
+            (now - 400, 1.0, 0.4, 0.4),
+            (now - 200, 3.0, 0.6, 0.6),
+            (now, 5.0, 0.8, 0.8)])
         averages = feed._averages(now)
         self.assertEqual(averages["batt_avg_net_kw"], 3.0)
         self.assertEqual(averages["batt_avg_kw"], 3.0)
         self.assertAlmostEqual(averages["load_avg_kw"], 0.6)
+        self.assertAlmostEqual(averages["solar_avg_kw"], 0.6)
 
     def test_battery_average_prunes_old_samples(self):
         feed = make_feed(interval=60)
         now = time.time()
-        feed._battery_samples.extend([
-            (now - 700, 9.0, 1.0), (now - 10, 2.0, 0.5)])
+        feed._samples.extend([
+            (now - 700, 9.0, 1.0, 9.0), (now - 10, 2.0, 0.5, 2.0)])
         averages = feed._averages(now)
         self.assertEqual(averages["batt_avg_net_kw"], 2.0)
         self.assertEqual(averages["load_avg_kw"], 0.5)
+        self.assertEqual(averages["solar_avg_kw"], 2.0)
 
     def test_battery_average_keeps_signed_direction(self):
         feed = make_feed(interval=60)
         now = time.time()
-        feed._battery_samples.extend([(now - 100, -1.5, 0.5), (now, -0.5, 0.5)])
+        feed._samples.extend([
+            (now - 100, -1.5, 0.5, 0.5), (now, -0.5, 0.5, 0.7)])
         averages = feed._averages(now)
         self.assertAlmostEqual(averages["batt_avg_net_kw"], -1.0)
         self.assertEqual(averages["batt_avg_kw"], 1.0)
+        self.assertAlmostEqual(averages["solar_avg_kw"], 0.6)
+
+    def test_solar_average_skips_intervals_without_pv(self):
+        feed = make_feed(interval=60)
+        now = time.time()
+        feed._samples.extend([
+            (now - 300, 1.0, 0.4, None),
+            (now - 200, 1.0, 0.4, 0.8),
+            (now, 1.0, 0.4, 1.2),
+        ])
+        averages = feed._averages(now)
+        self.assertEqual(averages["solar_avg_kw"], 1.0)
+        self.assertAlmostEqual(averages["load_avg_kw"], 0.4)
 
     def test_on_message_updates_window_and_average(self):
         feed = make_feed(interval=60)
@@ -279,10 +297,21 @@ class LiveFeedTests(unittest.TestCase):
         self.assertAlmostEqual(snap["batt_avg_net_kw"], 1.5)
         self.assertAlmostEqual(snap["batt_avg_kw"], 1.5)
         self.assertAlmostEqual(snap["load_avg_kw"], 0.5)
+        self.assertAlmostEqual(snap["solar_avg_kw"], 1.0)
         self.assertEqual(snap["charge_limit_kw"], 6.0)
         self.assertEqual(snap["charge_limit_source"], "default_6kw")
         self.assertFalse(snap["waking"])
         self.assertFalse(snap["stale"])
+
+    def test_missing_solar_fields_do_not_average_as_zero(self):
+        feed = make_feed(interval=60)
+        feed._on_message(None, None, SimpleNamespace(payload=frame({
+            "type": "ems",
+            "data": {"bp": -1500, "lp": 500, "soc": 50},
+        })))
+        snap = feed.get()
+        self.assertEqual(feed.stats()["battery_samples"], 1)
+        self.assertIsNone(snap["solar_avg_kw"])
 
     def test_parse_frame_carries_realtime_charge_limit(self):
         snap = parse_frame(frame({
