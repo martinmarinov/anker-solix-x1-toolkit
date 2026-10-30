@@ -26,17 +26,29 @@ follow the active meter band; values, units and icons stay page ink.</em></p>
   account switches in its own preference cookie. Stale thresholds follow the cadence.
 - **Solar-aware battery ETA.** The signed ten-minute battery average sets idle/charge/discharge;
   the ten-minute averaged PV (instant fallback) and instantaneous grid readings choose the
-  formula. Discharge and grid charging stay linear. Solar charging between 07:00 and 18:00
-  scales a solar curve from that averaged PV, subtracts the house load and clips at the runtime
-  inverter cap. When the sun cannot fill the pack, the dashboard shows the expected SOC at
-  18:00 instead of a false finish time. Estimates over 12 hours carry the target’s calendar
-  hint (`tomorrow 16:30`, `Sat 04 Jul 02:38`); shorter ones print only the time. The cards stay
-  instantaneous. See [`docs/SOLAR-ESTIMATE.md`](docs/SOLAR-ESTIMATE.md).
-- **Day / night backdrop.** Between **19:00 and 20:00** the scene crossfades from the daylight
-  house to a moonlit copy with lit windows and stars, and between **06:00 and 07:00** it fades
-  back. It follows the site timezone and the existing once-a-second clock; the UI palette does
-  not change. The two scenes share one pixel-aligned geometry, so the crossfade does not move
-  the house or the hills.
+  formula. Discharge and grid charging stay linear. Solar charging between the estimated
+  sunrise and sunset (supplied by `app/daylight.py`) scales a solar curve from that averaged
+  PV, subtracts the house load and clips at the runtime inverter cap. When the sun cannot fill
+  the pack, the dashboard shows the expected SOC at the effective sunset (the estimate, or
+  **18:00** when no location is available) instead of a false finish time. Estimates over
+  12 hours carry the target’s calendar hint (`tomorrow 16:30`, `Sat 04 Jul 02:38`); shorter
+  ones print only the time. The cards stay instantaneous. See
+  [`docs/SOLAR-ESTIMATE.md`](docs/SOLAR-ESTIMATE.md).
+- **Day / night backdrop.** For one hour after sunset the scene crossfades from the daylight
+  house to a moonlit copy with lit windows and stars, and for one hour before sunrise it fades
+  back. Both edges follow the same server-supplied `view.daylight` window as the solar icon
+  and the ETA, so the real estimate moves them automatically; with the fallback window they
+  are **19:00–20:00** and **06:00–07:00**. It follows the site timezone and the existing
+  once-a-second clock; the UI palette does not change. The two scenes share one pixel-aligned
+  geometry, so the crossfade does not move the house or the hills.
+- **Sunrise/sunset estimate.** `app/daylight.py` calculates local sun times with
+  [Astral](https://pypi.org/project/astral/) from approximate coordinates. The coordinates and
+  IANA timezone come from one GeoJS lookup of the server’s public IP, cached for 30 days in
+  `~/.anker-tou/solar-location.json`. The lookup makes no request during daily calculations.
+  Set `SOLAR_LATITUDE`, `SOLAR_LONGITUDE` and `SOLAR_TIMEZONE` together to bypass GeoJS when
+  the host is in a data centre, behind a VPN, or behind CGNAT. The bottom-corner watermark
+  shows the window and its source (`est. ip`, `est. cfg`, `fallback`); it is a quiet debug
+  aid, not part of the dashboard.
 - **Time-of-Use editor.** Reads the site, inverter and existing plan from your account.
   Edits seasons, weekday/weekend periods, tariffs and buy/sell prices. Periods cover the full
   day and stay contiguous.
@@ -112,6 +124,11 @@ separate Anker sessions and subscriptions. Put it behind HTTPS and run with
   wall panel's older 5 s build can temporarily make the feed faster than the selected cadence.
 - The dashboard targets a **Skylight Calendar WebView** (Chromium 95). Other browsers are
   not a support target.
+- The sunrise/sunset window is a real local estimate from `app/daylight.py`. Astral’s maths
+  is accurate for the supplied coordinates, but IP geolocation is approximate: a cloud host,
+  VPN or CGNAT can put the server minutes to hours away. Set the three `SOLAR_*` variables for
+  a fixed site. A missing location, invalid timezone, polar day or polar night falls back to
+  **07:00–18:00** so the solar model and backdrop keep working.
 - There is **no summary or weather strip yet**; those await a verified Anker stats source.
   The plan editor lives behind the burger, not in a tab.
 - A compromised host account can read the stored session. Host the app on a machine you

@@ -11,6 +11,7 @@ INDEX = STATIC / "index.html"
 EXPECTED = {
     "index.html",
     "app.js",
+    "daylight.js",
     "home-view.js",
     "css/base.css",
     "css/home.css",
@@ -423,14 +424,19 @@ class StaticRuntimeTests(unittest.TestCase):
                     _contrast(ink, colour), 4.5, (gradient, colour))
 
     def test_backdrop_fades_between_day_and_night_on_the_clock(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertLess(html.index("/static/daylight.js"),
+                        html.index("/static/home-view.js"))
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
-        for line in ("var DAWN_START = 6 * 60;", "var DAWN_END = 7 * 60;",
-                     "var DUSK_START = 19 * 60;", "var DUSK_END = 20 * 60;"):
-            self.assertIn(line, js)
-        self.assertIn("function nightAmount(minutes)", js)
-        self.assertIn("return smoothstep((minutes - DUSK_START) / 60);", js)
-        self.assertIn(
-            "return 1 - smoothstep((minutes - DAWN_START) / 60);", js)
+        for old in ("var DAWN_START", "var DAWN_END", "var DUSK_START",
+                    "var DUSK_END", "function localHour",
+                    "function clockMinutes", "function nightAmount",
+                    "hour >= 8 && hour < 20", '"18:00"'):
+            self.assertNotIn(old, js)
+        self.assertIn("Daylight.configure(view.daylight)", js)
+        self.assertIn("Daylight.nightAmount(", js)
+        self.assertIn("Daylight.solarIcon(", js)
+        self.assertIn("Daylight.sunsetClock()", js)
         self.assertIn("sceneDay.style.opacity = String(1 - night);", js)
         self.assertIn("sceneNight.style.opacity = String(night);", js)
         # The sky piggybacks the existing one-second clock; no extra timer.
@@ -438,11 +444,52 @@ class StaticRuntimeTests(unittest.TestCase):
         changed = re.search(r"if \(t !== lastTime\) \{(.*?)\n    \}", js, re.S)
         self.assertIsNotNone(changed)
         self.assertIn("applySky(t);", changed.group(1))
+        daylight = (STATIC / "daylight.js").read_text(encoding="utf-8")
+        self.assertIn("window.Daylight = {", daylight)
+        self.assertIn("function nightAmount(minutes, sun)", daylight)
+        self.assertIn("DEFAULT_SUNRISE_MINUTES = 7 * 60", daylight)
+        self.assertIn("DEFAULT_SUNSET_MINUTES = 18 * 60", daylight)
+        self.assertNotIn("fetch(", daylight)
+        self.assertNotIn("XMLHttpRequest", daylight)
         css = (STATIC / "css/home.css").read_text(encoding="utf-8")
         self.assertIn(".scene-layer {", css)
         self.assertIn(".scene-layer--night { opacity: 0; }", css)
         self.assertIn(".scene-glow--night {", css)
         self.assertIn(".house--night {", css)
+
+    def test_daylight_watermark_is_a_quiet_debug_readout(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertIn('id="daylightWatermark"', html)
+        self.assertIn('class="daylight-watermark"', html)
+        self.assertIn('aria-hidden="true"', html)
+        self.assertLess(html.index('id="batteryHero"'),
+                        html.index('id="daylightWatermark"'))
+        self.assertLess(html.index('id="daylightWatermark"'),
+                        html.index("</main>"))
+        self.assertIn("sunrise —<br>sunset —", html)
+
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        for snippet in (
+                ".daylight-watermark {",
+                "right: calc(var(--u) * 1.6);",
+                "bottom: calc(env(safe-area-inset-bottom, 0px) + var(--u) * 2.4);",
+                "font-family: var(--mono);",
+                "font-size: clamp(9px, calc(var(--u) * 1.15), 12px);",
+                "line-height: 1.35;",
+                "text-align: right;",
+                "white-space: pre-line;",
+                "font-variant-numeric: tabular-nums;",
+                "pointer-events: none;",
+                'color: rgba(var(--muted-rgb), .55);',
+                '.daylight-watermark[data-source="default"] {'):
+            self.assertIn(snippet, css)
+        self.assertNotIn("var(--u) * 28.5", css)
+
+        js = (STATIC / "home-view.js").read_text(encoding="utf-8")
+        for snippet in ("daylightWatermark", "renderDaylightWatermark(view.daylight)",
+                        "resetDaylightWatermark();", "est. ip", "est. cfg",
+                        "est.", "fallback", "\\nsunset ", 'el.dataset.source'):
+            self.assertIn(snippet, js)
 
     def test_refresh_slider_is_bounded_to_sixty(self):
         html = INDEX.read_text(encoding="utf-8")

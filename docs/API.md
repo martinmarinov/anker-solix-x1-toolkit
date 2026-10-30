@@ -282,6 +282,42 @@ debounced display flag; it turns true 2 s after the publish, so a fast renewal
 never flashes `Refreshing`. `live.stale` is independent of both and takes
 precedence in `view.status` (`Stale · Ns` even while a wake retries).
 
+### Live view: daylight window
+
+`/api/live` returns `view.daylight` with the server-computed sunrise and sunset for the
+snapshot's site-local day:
+
+```json
+"daylight": {
+  "sunrise": "04:47",
+  "sunset": "21:21",
+  "source": "ip",
+  "approximate": true
+}
+```
+
+`source` is a closed set:
+
+| Value | Meaning | `approximate` |
+|---|---|---|
+| `ip` | Local Astral calculation from cached approximate IP coordinates. | `true` |
+| `config` | From the three `SOLAR_*` coordinates. | `false` |
+| `explicit` | Coordinates supplied by the caller; no discovery. | `false` |
+| `default` | Canonical **07:00–18:00** fallback. | `false` |
+
+The window is resolved once per request from the snapshot timestamp and the effective
+timezone (`app/daylight.py`). The server resolves the site location once at startup
+(`app/solar_location.py`) and caches it for 30 days; daily calculations are local and make no
+network call. If the account has no usable timezone, `/api/live` uses the location's IANA
+timezone in its existing `timezone` field. A missing/invalid location, invalid timezone,
+polar day or polar night, or a window outside `0 <= sunrise < sunset <= 24` returns the
+`default` window with `approximate=false`.
+
+The object is present on both available and unavailable views, so the solar icon and
+day/night backdrop stay correct while telemetry is missing. The front end is display-only:
+it parses this object and does not estimate sun times. `/api/live` accepts no
+`sunrise`/`sunset` query parameters; sending them has no effect.
+
 ### Live view: battery estimate
 
 `/api/live` returns `view.battery.estimate` alongside the existing battery fields. `mode` is
@@ -365,9 +401,9 @@ actual target time-of-day:
   target crosses midnight; 12 h or more over the next calendar day adds `tomorrow`; two or
   more days out uses e.g. `Sat 04 Jul 02:38`, with the year when it differs from now.
 - `eta.hours` mirrors `hours` after the view rounds it to three decimals. For `to_soc`,
-  `hours` is `null` and `eta.soc`/`eta.at` carry the expected SOC at 18:00 instead.
-  The legacy top-level `soc_final` and `solar_end` remain set for that case and mirror
-  `eta.soc`/`eta.at`.
+  `hours` is `null` and `eta.soc`/`eta.at` carry the expected SOC at the effective sunset
+  (default 18:00) instead. The legacy top-level `soc_final` and `solar_end` remain set for
+  that case and mirror `eta.soc`/`eta.at`.
 - The `hours_to_empty` and `hours_to_full` aliases are derived from `eta.kind`, so a new
   estimate branch does not need another mode list.
 - `charge_limit_kw` is resolved at runtime: realtime EMS (`realtime.ems_second.<key>`) →

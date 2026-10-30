@@ -222,6 +222,43 @@ class AveragedSolarTests(unittest.TestCase):
         self.assertAlmostEqual(result["solar"]["load_kw"], 0.3, places=3)
 
 
+class CustomWindowTests(unittest.TestCase):
+    def test_custom_window_enters_solar_at_0630(self):
+        result = estimate(solar_w=4000, now_hour=6.5,
+                          solar_start_hour=6.0, solar_end_hour=19.0)
+        self.assertEqual(result["mode"], "solar")
+        self.assertEqual(result["reason"], "solar_curve")
+        self.assertEqual(result["solar"]["as_of"], "06:30")
+
+    def test_custom_window_keeps_1800_in_solar_mode(self):
+        result = estimate(solar_w=4000, now_hour=18.5,
+                          solar_start_hour=6.0, solar_end_hour=19.0)
+        self.assertEqual(result["mode"], "solar")
+
+    def test_custom_window_boundaries_are_outside(self):
+        for hour in (5.5, 6.0, 19.0, 19.5):
+            result = estimate(solar_w=4000, now_hour=hour,
+                              solar_start_hour=6.0, solar_end_hour=19.0)
+            self.assertEqual(result["mode"], "charging", hour)
+            self.assertEqual(result["reason"], "outside_solar_window", hour)
+            self.assertIsNone(result["solar"], hour)
+
+    def test_low_pv_reports_the_custom_sunset(self):
+        result = estimate(solar_w=1200, solar_start_hour=6.0,
+                          solar_end_hour=19.0)
+        self.assertEqual(result["mode"], "solar")
+        self.assertEqual(result["solar_end"], "19:00")
+        self.assertEqual(result["eta"]["kind"], "to_soc")
+        self.assertEqual(result["eta"]["at"], "19:00")
+
+    def test_invalid_window_falls_back_to_1800(self):
+        for start, end in ((19.0, 6.0), (None, 19.0), (6.0, None)):
+            result = estimate(solar_w=1200, solar_start_hour=start,
+                              solar_end_hour=end)
+            self.assertEqual(result["solar_end"], "18:00", (start, end))
+            self.assertEqual(result["eta"]["at"], "18:00", (start, end))
+
+
 class SlowEtaTests(unittest.TestCase):
     def test_thirty_hour_discharge_says_tomorrow(self):
         result = estimate(battery_avg_net_w=-213.75)

@@ -11,7 +11,9 @@ Read [`../REPORT.md`](../REPORT.md) for the protocol evidence behind every call.
 app/
   anker_client.py     protocol client: login, sites, devices, plan, write, validation
   power_flow.py       pure edge/aggregate parsing -> signed solar/grid/battery/home W
-  solar_forecast.py   half-sine solar model, scaled from an averaged or instant observation
+  solar_location.py   cached approximate site fix: SOLAR_* override or one GeoJS lookup
+  daylight.py         single sunrise/sunset source for the icon, sky, ETA and caption
+  solar_forecast.py   half-sine solar model over the supplied window, scaled from an observation
   eta.py              clock and calendar labels for the estimate
   battery_estimate.py mode selection, load compensation, charge-cap energy math
   limits.py           dynamic charge-limit extraction and the 6 kW fallback
@@ -20,6 +22,7 @@ app/
   server.py           stdlib HTTP server, sessions, write/verify/rollback
   static/
     index.html        login, Home stage, plan drawer
+    daylight.js       display-only adapter: parse view.daylight, sky/icon/fallback clock
     home-view.js      formatting, state attributes, clock, flow layout
     css/              base, home, drawer
     assets/           house.svg + house-night.svg (same geometry, day/night palette)
@@ -31,7 +34,7 @@ app/
 ## 1. Quick start
 
 ```sh
-python3 -m pip install --user requests cryptography paho-mqtt tzdata
+python3 -m pip install --user requests cryptography paho-mqtt tzdata astral==3.2
 ./pandacode-run.sh                 # http://127.0.0.1:8770
 ```
 
@@ -84,10 +87,12 @@ capacity, never offered as a plan target.
 - **Night scenery without a second theme.** `house-night.svg` is a colour-only copy of the day
   house: same viewBox, paths, positions, opacities and gradients. The night sky reuses the
   day cloud and hill paths and swaps the sun glow for a cool moon glow; only the stars are new
-  geometry. Both scenes are stacked, pixel-aligned layers. From **19:00–20:00** the clock
-  crossfades day→night and from **06:00–07:00** night→day, using the same once-a-second clock
-  as the drawer (two opacity writes per minute, no extra timer, no CSS animation). Outside
-  those windows the scene is fully day or fully night; `data-sky` is `day`, `dusk` or `night`.
+  geometry. Both scenes are stacked, pixel-aligned layers. For one hour after sunset the clock
+  crossfades day→night, and for one hour before sunrise it crossfades night→day, using the same
+  once-a-second clock as the drawer (two opacity writes per minute, no extra timer, no CSS
+  animation). Both edges come from `view.daylight`; with the fallback 07:00–18:00 window that
+  is **19:00–20:00** and **06:00–07:00**. Outside those windows the scene is fully day or fully
+  night; `data-sky` is `day`, `dusk` or `night`.
   The crossfade follows the site timezone, and the night palette is a moonlit sage/blue set
   rather than a dark/black screen: the hills behind the battery caption stay above 4.5:1
   against the page ink, so the card, battery and text colours do not change. The night house
@@ -107,18 +112,27 @@ capacity, never offered as a plan target.
 - **Battery ETA is source-aware.** The signed ten-minute battery average decides
   idle/charge/discharge; the ten-minute averaged PV (instant fallback while the mean is
   missing) and the instantaneous grid readings decide which formula to use. Discharge and
-  grid charging keep the existing linear formulas. Solar charging inside 07:00–18:00 uses a
-  half-sine curve scaled from the averaged PV, subtracts the ten-minute house load, and clips
+  grid charging keep the existing linear formulas. Solar charging inside the supplied
+  sunrise/sunset window uses a half-sine curve scaled from the averaged
+  PV, subtracts the ten-minute house load, and clips
   at the runtime inverter cap. The cap comes from the live EMS field when present, then the
   device attribute, then a named **6 kW** fallback; it is never a constant in the formula. On
   the tested A5102 the realtime frame and the attribute APIs exposed **no** charge cap, so the
   6 kW fallback is the path in use; a just-saved plan supplies its written value until the
-  next read. If the curve cannot fill the pack, the caption shows the expected SOC at 18:00
-  (`87% by 18:00`) instead of a fake finish time.
+  next read. If the curve cannot fill the pack, the caption shows the expected SOC at the
+  effective sunset (the estimate, or **18:00** in fallback) (`87% by 18:00`) instead of a
+  fake finish time.
   Only the estimate is averaged; the card’s watts/state, flows and meters stay instantaneous.
   The estimate’s clock is the actual target time, and estimates over 12 h add `tomorrow` or
   the target calendar date (`Sun 01 Nov 08:38`) on the server.
   The model and its limits are in [`docs/SOLAR-ESTIMATE.md`](../docs/SOLAR-ESTIMATE.md).
+- **Sunrise/sunset is one local estimate.** At startup `solar_location.py` resolves the site
+  from `SOLAR_*` (all three set) or one GeoJS request, caches it for 30 days, and `daylight.py`
+  computes each day locally with Astral. A failed refresh keeps a valid stale cache and waits
+  24 h; with no location the dashboard uses the **07:00–18:00** fallback. The tiny
+  bottom-corner watermark shows the window and `est. ip`/`est. cfg`/`fallback`; it is a debug
+  aid and ignores clicks. The resolver is one process and one startup call, matching the app's
+  single-process server.
 - **Flows are measured, not guessed.** `home-view.js` measures the solar/grid/home cards and
   the battery shell, then redraws the SVG paths on resize/orientation change. Solar runs
   card → battery; grid runs card ↔ battery (import/export); home runs battery → card when the
@@ -143,8 +157,9 @@ capacity, never offered as a plan target.
   accessible meter value reports the bar count plus the kW reading.
 - **Solar meter and sky icon.** Five green segments sit under Solar. Any output above zero
   lights one; 2.8 kW and above lights all five, with the intervening bars linear at 0.7 kW
-  steps. The same card swaps its sun for a daytime cloud (08:00–20:00) or a night moon when
-  solar is not generating. The hour comes from the site timezone.
+  steps. The same card swaps its sun for a daytime cloud or a night moon when solar is not
+  generating: cloud inside the `view.daylight` sunrise–sunset window, moon outside it. The
+  time comes from the site timezone and the server-supplied window.
 - **Grid meter.** Five segments sit under Grid. Export uses blue at every level:
   linear from 1 bar above 50 W to 5 bars at 2.8 kW. Import is 1–2 green below 1/2 kW,
   3–4 amber below 5/10 kW, and 5 red at 10 kW or above. Both directions stay unlit below
@@ -161,8 +176,8 @@ capacity, never offered as a plan target.
   battery only when telemetry is not live.
 - **Clock** uses the site timezone from the account when present, otherwise the browser's
   local time. It updates once a minute (timer ticks every second but only writes on change);
-  the same minute change drives the 19:00/06:00 backdrop crossfade, so there is no second
-  timer.
+  the same minute change drives the one-hour backdrop crossfade around the sunrise/sunset in
+  `view.daylight`, so there is no second timer.
 - **Kiosk-friendly.** The page never scrolls on Home in landscape; the drawer scrolls
   independently. Fullscreen is available from the drawer. `prefers-reduced-motion` is
   respected from day one.
@@ -250,7 +265,7 @@ the app saved. The full method is in `REPORT.md` §17.
 | Brute force | 8 login attempts per IP / 5 min → 429. |
 | Logging | Access log off; errors log method + path only; bodies/headers/tokens never logged. |
 | Static files | Path traversal rejected; only known extensions served; image MIME types added for future raster assets. |
-| Disk | `~/.anker-tou/` `0700`; key/session/certs `0600`; plan snapshots under `~/.anker-tou/captures`. |
+| Disk | `~/.anker-tou/` `0700`; key/session/certs/location cache `0600`; plan snapshots under `~/.anker-tou/captures`. |
 | Live certs | Temp dir per session, deleted on stop; never committed. |
 | New UI | No external assets/fonts/CDN and no fixture data. Every static asset is referenced by the Home/editor shell; missing telemetry renders as `—`, never a sample value. |
 
@@ -307,8 +322,16 @@ python3 app/server.py --host 127.0.0.1 --port 8770 --secure-cookies --no-persist
 | `--no-persist` | off | memory-only sessions |
 | `--secure-cookies` | off | add `Secure` to both cookies |
 | `--use-keychain` | off | store the at-rest key in the macOS Keychain |
+| `SOLAR_LATITUDE`, `SOLAR_LONGITUDE`, `SOLAR_TIMEZONE` | unset | exact site override; set all three or none |
+| `SOLAR_LOCATION_CACHE` | `~/.anker-tou/solar-location.json` | persistent GeoJS cache path |
 
 State lives in `~/.anker-tou/` (override with `ANKER_TOU_HOME` if set by your deployment).
+
+The solar location is resolved once at startup. A valid cache is reused for 30 days; after a
+failed refresh the resolver keeps the stale fix and backs off for 24 hours. If neither
+`SOLAR_*` nor a cache is usable, `/api/live` still returns the 07:00–18:00 window with
+`source="default"`. The resolver is thread-safe within one process; run one server process
+per cache file.
 
 ---
 
@@ -334,12 +357,13 @@ headers or tokens.
 
 ## 9. Known limitations
 
-- **The solar ETA is a forecast, not a measurement.** It assumes a fixed 07:00–18:00
-  half-sine and a constant house load; outside that window, or below 50 W averaged PV, it
-  falls back to the linear battery rate. The ten-minute mean is treated as the current PV
-  value, so a small sunrise/evening phase bias is accepted. The charge cap comes from the live
-  frame or device attribute when readable, otherwise a 6 kW fallback. It never changes
-  charging.
+- **The solar ETA is a forecast, not a measurement.** It assumes a half-sine over the supplied
+  sunrise/sunset window and a constant house load; outside that window, or below 50 W averaged
+  PV, it falls back to the linear battery rate. The ten-minute mean is treated as the current
+  PV value, so a small sunrise/evening phase bias is accepted. The window is a local Astral
+  estimate; a cloud/VPN/CGNAT host can be minutes to hours off until `SOLAR_*` is set. The
+  charge cap comes from the live frame or device attribute when readable, otherwise a 6 kW
+  fallback. It never changes charging.
 - **No summary metrics or weather yet.** The previous mockup's "Today's Production / CO₂ /
   Earnings" strip and the weather row are intentionally absent; there is no verified Anker
   stats source in this build.

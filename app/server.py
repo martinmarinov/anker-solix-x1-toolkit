@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -33,6 +34,8 @@ from live import (  # noqa: E402
     LiveFeed, normalise_interval, stale_after_s,
 )
 from home_view import build_home_view
+import daylight
+import solar_location
 from anker_client import (  # noqa: E402
     AnkerClient, AnkerError, assert_plan_only, dumps, now_stamp, plan_diff, site_id_of,
 )
@@ -55,6 +58,33 @@ CONFIG = {"host": "127.0.0.1", "port": 8770, "max_charge_kw": 4.2, "persist": Tr
 def interval_bounds() -> dict:
     return {"min": MIN_INTERVAL_S, "max": MAX_INTERVAL_S,
             "step": INTERVAL_STEP_S, "default": DEFAULT_INTERVAL_S}
+
+
+_LOCATION_WARNING_SHOWN = False
+
+
+def valid_timezone(tz) -> bool:
+    """True for a usable IANA zone name."""
+    if not isinstance(tz, str) or not tz.strip():
+        return False
+    try:
+        ZoneInfo(tz)
+    except Exception:
+        return False
+    return True
+
+
+def resolve_site_location():
+    """Best-effort approximate location; never breaks ``/api/live``."""
+    global _LOCATION_WARNING_SHOWN
+    try:
+        return solar_location.get_location()
+    except Exception as exc:
+        if not _LOCATION_WARNING_SHOWN:
+            _LOCATION_WARNING_SHOWN = True
+            log(f"Solar location lookup failed ({type(exc).__name__}); "
+                "using the daylight fallback")
+        return None
 
 
 def pref_cookie_header(value) -> str:
@@ -921,11 +951,18 @@ class Handler(BaseHTTPRequestHandler):
                 self.drop_session()
             return self.fail(self.status_for(e), e.message, e.kind)
         snap = live.get()
-        view = build_home_view(snap, now=snap.get("ts"),
-                               tz=self._site_timezone(s, site))
+        tz = self._site_timezone(s, site)
+        location = resolve_site_location()
+        if location is not None and not valid_timezone(tz):
+            tz = location.timezone
+        view = build_home_view(
+            snap, now=snap.get("ts"), tz=tz,
+            latitude=location.latitude if location else None,
+            longitude=location.longitude if location else None,
+            location_source=location.source if location else "default")
         interval = snap.get("interval_s", live.interval_s)
         self.json(200, {"ok": True, "site": site, "sn": sn,
-                        "timezone": self._site_timezone(s, site),
+                        "timezone": tz,
                         "mqtt_interval_s": normalise_interval(
                             s.get("mqtt_interval_s", interval)),
                         "mqtt_bounds": interval_bounds(),
@@ -1235,6 +1272,15 @@ def main():
         restore_session()
     if CONFIG.get("startup_probe"):
         startup_probe()
+
+    if daylight.astral_available():
+        location = solar_location.warm_location()
+        if location is None:
+            log("sunrise/sunset: no location; using the 07:00-18:00 fallback")
+        else:
+            log(f"sunrise/sunset: using the {location.source} location estimate")
+    else:
+        log("sunrise/sunset: Astral unavailable; using the 07:00-18:00 fallback")
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     srv.daemon_threads = True

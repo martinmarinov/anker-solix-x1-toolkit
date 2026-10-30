@@ -5,8 +5,9 @@ Mode rules (agreed with the user):
 * signed ten-minute average battery power decides idle/charge/discharge;
 * below 50 W discharge is idle, with no ETA;
 * charging with more than 50 W grid import uses the legacy linear formula;
-* charging from solar inside 07:00-18:00 uses the solar curve scaled from
-  ten-minute averaged PV, with an instantaneous fallback;
+* charging from solar inside the supplied sunrise/sunset window uses the
+  solar curve scaled from ten-minute averaged PV, with an instantaneous
+  fallback;
 * outside that window, or with no usable solar, fall back to linear.
 
 The solar branch subtracts a constant house load and clips the charge at the
@@ -21,14 +22,13 @@ from datetime import datetime
 from eta import clock_at, format_eta_label, local_hour
 from limits import FALLBACK_MAX_CHARGE_KW
 from solar_forecast import (
-    SOLAR_END_HOUR,
     SOLAR_MAX_PEAK_MULTIPLIER,
     SOLAR_MIN_OBS_W,
     SOLAR_RISK_FACTOR,
-    SOLAR_START_HOUR,
     energy_kwh,
     format_hour,
     create_solar_curve,
+    resolve_solar_window,
 )
 
 BATTERY_IDLE_W = 50.0
@@ -137,15 +137,15 @@ def _positive_energy(curve, start: float, end: float, load_kw: float) -> float:
     peak_kw = curve.peak_w / 1000.0
     if peak_kw <= 0:
         return 0.0
+    span = curve.window_hours
     if load_kw <= 0:
-        c1, c2 = SOLAR_START_HOUR, SOLAR_END_HOUR
+        c1, c2 = curve.start_hour, curve.end_hour
     elif load_kw >= peak_kw:
         return 0.0
     else:
         theta = math.asin(_clamp(load_kw / peak_kw, 0.0, 1.0))
-        span = SOLAR_END_HOUR - SOLAR_START_HOUR
-        c1 = SOLAR_START_HOUR + span * theta / math.pi
-        c2 = SOLAR_END_HOUR - span * theta / math.pi
+        c1 = curve.start_hour + span * theta / math.pi
+        c2 = curve.end_hour - span * theta / math.pi
     lo = max(start, c1)
     hi = min(end, c2)
     if hi <= lo:
@@ -166,23 +166,23 @@ def _negative_energy(curve, start: float, end: float, load_kw: float) -> float:
 def _crossing_afternoon(curve, load_kw: float) -> float | None:
     peak_kw = curve.peak_w / 1000.0
     if load_kw <= 0:
-        return SOLAR_END_HOUR
+        return curve.end_hour
     if peak_kw <= load_kw:
         return None
     theta = math.asin(_clamp(load_kw / peak_kw, 0.0, 1.0))
-    span = SOLAR_END_HOUR - SOLAR_START_HOUR
-    return SOLAR_END_HOUR - span * theta / math.pi
+    span = curve.window_hours
+    return curve.end_hour - span * theta / math.pi
 
 
 def _crossing_morning(curve, load_kw: float) -> float:
     peak_kw = curve.peak_w / 1000.0
     if load_kw <= 0:
-        return SOLAR_START_HOUR
+        return curve.start_hour
     if peak_kw <= load_kw:
-        return SOLAR_END_HOUR
+        return curve.end_hour
     theta = math.asin(_clamp(load_kw / peak_kw, 0.0, 1.0))
-    span = SOLAR_END_HOUR - SOLAR_START_HOUR
-    return SOLAR_START_HOUR + span * theta / math.pi
+    span = curve.window_hours
+    return curve.start_hour + span * theta / math.pi
 
 
 def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
@@ -207,7 +207,7 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
     q_ac = q_dc / efficiency
     t2 = _crossing_afternoon(curve, load_kw)
     t1 = _crossing_morning(curve, load_kw)
-    remaining = energy_kwh(curve, t0, SOLAR_END_HOUR)
+    remaining = energy_kwh(curve, t0, curve.end_hour)
     peak_kw = curve.peak_w / 1000.0
 
     if t2 is None or t2 <= t0:
@@ -254,11 +254,11 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
             solar_end=None, solar=solar, reason="solar_curve",
             eta_kind="to_full")
 
-    e_final_dc = (efficiency * e_plus_capped(SOLAR_END_HOUR)
-                  - _negative_energy(curve, t0, SOLAR_END_HOUR, load_kw)
+    e_final_dc = (efficiency * e_plus_capped(curve.end_hour)
+                  - _negative_energy(curve, t0, curve.end_hour, load_kw)
                   / efficiency)
     soc_final = _clamp(soc + e_final_dc / nominal * 100.0, reserve, 100.0)
-    solar_end = format_hour(SOLAR_END_HOUR)
+    solar_end = format_hour(curve.end_hour)
     solar["solar_end"] = solar_end
     solar["soc_final"] = round(soc_final, 1)
     return _result(
@@ -276,6 +276,7 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
                      load_avg_kw=None, now_hour=None, now_dt=None,
                      charge_limit_kw=None,
                      charge_limit_source="runtime",
+                     solar_start_hour=None, solar_end_hour=None,
                      efficiency=BATTERY_EFFICIENCY) -> dict:
     """Return the estimate mode and, when calculable, its duration and clock.
 
@@ -285,14 +286,18 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
     instantaneous value still feeds the load energy-balance fallback.
 
     ``now_dt`` supplies the calendar date for the label; ``now_hour`` remains
-    the decimal local hour used by the solar-curve window.  This is the only
-    averaged time estimate in the view model; every other battery field stays
-    instantaneous.
+    the decimal local hour used by the solar-curve window.  ``solar_start_hour``
+    and ``solar_end_hour`` are the site's sunrise/sunset; a missing or invalid
+    pair falls back to 07:00-18:00.  This is the only averaged time estimate in
+    the view model; every other battery field stays instantaneous.
     """
     now = now_dt if isinstance(now_dt, datetime) else None
     hour = _number(now_hour)
     if hour is None and now is not None:
         hour = local_hour(now)
+
+    solar_start_hour, solar_end_hour = resolve_solar_window(
+        solar_start_hour, solar_end_hour)
 
     nominal = _number(nominal_kwh)
     soc_raw = _number(soc)
@@ -356,7 +361,7 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
                        eta_kind="to_full" if hours is not None else "none")
 
     in_window = (hour is not None
-                 and SOLAR_START_HOUR < hour < SOLAR_END_HOUR)
+                 and solar_start_hour < hour < solar_end_hour)
     if not in_window:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
         return _result(mode="charging", phase="charging", source=solar_source,
@@ -387,7 +392,8 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
         curve = create_solar_curve(
             solar_obs_w, hour,
             risk_factor=SOLAR_RISK_FACTOR,
-            max_peak_multiplier=SOLAR_MAX_PEAK_MULTIPLIER)
+            max_peak_multiplier=SOLAR_MAX_PEAK_MULTIPLIER,
+            start_hour=solar_start_hour, end_hour=solar_end_hour)
     except ValueError:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
         return _result(mode="charging", phase="charging", source="solar",

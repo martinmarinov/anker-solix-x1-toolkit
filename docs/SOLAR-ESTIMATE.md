@@ -27,13 +27,17 @@ ten-minute averaged PV (instant fallback), `S_w` the instantaneous PV, `G_w` gri
 | 3 | `B_w == 0`, SOC below 100 | `idle` | none |
 | 4 | `B_w == 0`, SOC at 100 | `full` | `Full` |
 | 5 | `B_w > 0`, `G_w > 50 W` | `grid` | existing: `deficit / (rate_kw × 0.95)` |
-| 6 | `B_w > 0`, `7 < t0 < 18`, `S̄_w > 50 W`, `X_w <= 50 W` | `solar` | curve below |
+| 6 | `B_w > 0`, `S < t0 < E`, `S̄_w > 50 W`, `X_w <= 50 W` | `solar` | curve below |
 | 7 | `B_w > 0`, anything else | `charging` | linear fallback from `B_w` |
+
+`S` and `E` are the site's sunrise and sunset as decimal local hours. `app/daylight.py`
+supplies them from the estimate described below; when no location is available the fallback
+window is **07:00–18:00**.
 
 The 50 W gates are **thresholds**, not measurements: a discharge below 50 W is treated as
 idle so inverter noise does not produce a multi-day ETA. Grid input above 50 W wins over
 solar, because the battery may be charging from the grid even when PV is present. Outside
-07:00–18:00 the curve is not defined, so charging is linear again.
+the supplied window the curve is not defined, so charging is linear again.
 
 The estimator consumes the battery, house-load and PV means from the live feed's shared
 600 s window. `batt_avg_*`, `load_avg_kw` and `solar_avg_kw` are exposed for diagnostics and
@@ -41,22 +45,83 @@ are never rendered as card power. The battery card’s watts, state, label and S
 and the solar/grid/home cards still follow instantaneous telemetry, so the card can read
 “Discharging” while the ETA is hidden or while the averaged estimate says it is charging.
 
+## One daylight window
+
+`app/daylight.py` is the single authoritative source for `S` and `E`. The server resolves it
+once per `/api/live` request from the snapshot timestamp and the effective timezone, then
+sends it in `view.daylight` on both available and unavailable views:
+
+```json
+"daylight": {
+  "sunrise": "04:47",
+  "sunset": "21:21",
+  "source": "ip",
+  "approximate": true
+}
+```
+
+The same object drives all four day-boundary behaviours: the solar-card moon/cloud icon, the
+one-hour dawn/dusk backdrop crossfade, the solar-estimate window above and the battery
+caption’s fallback sunset clock.
+
+### Location and calculation
+
+The window is a local calculation, not a per-request cloud lookup.
+
+1. At startup `app/solar_location.py` resolves the approximate site:
+   - all three of `SOLAR_LATITUDE`, `SOLAR_LONGITUDE` and `SOLAR_TIMEZONE` when set (an exact fix);
+   - otherwise the cache at `~/.anker-tou/solar-location.json`, valid for 30 days;
+   - otherwise one GeoJS request from the server’s public IP.
+2. `daylight.sun_times()` passes the date and IANA timezone to Astral’s `Observer`,
+   `sunrise` and `sunset`. Astral returns aware datetimes in the site zone, so daylight-saving
+   time is applied before the decimal hour is calculated.
+3. Every `/api/live` request reads the in-process calculation cache. There is no network call
+   per poll; only a cold start or an expired cache can contact GeoJS.
+
+If GeoJS fails and a cache exists, the stale fix is used and retries wait 24 hours. If there
+is no usable location, the canonical **07:00–18:00** window is returned with
+`source="default"`. The same fallback covers an invalid timezone, a polar day or night, and a
+window outside `0 <= sunrise < sunset <= 24`.
+
+The public sources are `ip`, `config`, `explicit` and `default`; only `ip` sets
+`approximate=true`. The browser’s `static/daylight.js` remains display-only: it parses
+`view.daylight` and never estimates sun times. `/api/live` has no `sunrise`/`sunset` query
+parameters. The small bottom-corner watermark renders the window and source as a debug aid.
+
+### Why the app keeps decimal hours
+
+The original Python brief returned ISO-8601 datetimes. This app passes decimal local hours
+between modules because the half-sine curve, ETA labels and `HH:MM` cards already use that
+contract. Astral still does the astronomy; `daylight._decimal_hour` converts the aware result
+once. A timezone or DST change therefore moves all four consumers together, with no second
+source of truth.
+
 ## The solar curve
 
-The supplied model is a symmetric half-sine between 07:00 and 18:00, peaking at 12:30.
+The model is a symmetric half-sine between sunrise `S` and sunset `E`, peaking at the
+midpoint `(S + E) / 2`. The 07:00/18:00 pair is the fallback window; a resolved day uses the
+estimated values.
 
 ```
-s(t)   = sin(pi * (t - 7) / 11)                 inside 07:00..18:00, else 0
+W      = E - S
+s(t)   = sin(pi * (t - S) / W)                  inside S..E, else 0
 P_peak = 0.5 * min(P̄_obs / s(t0), 2.5 * P̄_obs)
-P(t)   = P_peak * s(t)                         W
-E(u,v) = P_peak * 11 / (1000 * pi) *
-         [cos(pi*(A-7)/11) - cos(pi*(B-7)/11)]  kWh
+P(t)   = P_peak * s(t)                          W
+E(u,v) = P_peak * W / (1000 * pi) *
+         [cos(pi*(A-S)/W) - cos(pi*(B-S)/W)]     kWh
 ```
 
-`A = max(7,u)`, `B = min(18,v)`. `P̄_obs` is the ten-minute averaged PV in W (with the
+`A = max(S,u)`, `B = min(E,v)`. `P̄_obs` is the ten-minute averaged PV in W (with the
 instantaneous reading as fallback). The 2.5× cap is applied before the 0.5 risk factor,
 matching the source model. `SOLAR_RISK_FACTOR` and `SOLAR_MAX_PEAK_MULTIPLIER` are named
 constants in `app/solar_forecast.py`; there is no UI or environment override.
+
+The window is resolved once per estimate. `app/solar_forecast.py` stores `start_hour` and
+`end_hour` on each `SolarCurve`, and every energy helper uses those fields rather than the
+module defaults. A direct caller of `estimate_battery` may pass `solar_start_hour` and
+`solar_end_hour`; a missing or invalid pair falls back to 07:00–18:00. The strict interior
+`S < t0 < E` is unchanged: at exactly sunrise or sunset the half-sine is zero, so the model
+stays linear there while the display may treat those minutes as day.
 
 ## Averaged observation
 
@@ -170,15 +235,19 @@ If `E_plus_capped(t0, t2)` is at least `Q_ac`, we bisect for the time the batter
 100 % and report `~4h 39m · full 15:09`. Here `t2` is the afternoon time when solar falls
 back to the house load.
 
-If it is not enough, we integrate to 18:00 and report the SOC at sunset plus the end time,
-for example `87% by 18:00`. The final SOC is clamped at the reserve, because the real device
-would stop discharging there.
+If it is not enough, we integrate to the effective sunset `E` and report the SOC there plus
+the end time, for example `87% by 18:00` for the fallback window. The final SOC is clamped at
+the reserve, because the real device would stop discharging there.
 
 Grid and linear charging continue to use the legacy deficit, which includes the reserve.
 That preserves the existing numbers (`8.68 h` in the regression fixture) and is intentional:
 the user asked not to change those formulas.
 
 ## View and API fields
+
+`view.daylight` carries the server-computed window and source described above. It is present
+on both the available and unavailable view, so the sky and solar icon stay correct while
+telemetry is missing.
 
 `view.battery.estimate` is present on every available snapshot. `mode` is the legacy formula
 name; `phase` and `source` describe the averaged estimate that produced the time:
@@ -249,7 +318,9 @@ clock itself. `data-estimate` on the Home stage still carries the legacy mode fo
 
 ## Worked checks
 
-At `P̄_obs = 4000 W` (a steady mean or point reading), 10:30, `L = 0.5 kW`, 15 kWh / 50 % SOC / 5 % reserve / 0.95 efficiency:
+These worked examples pin the fallback 07:00–18:00 window, so they stay reproducible when
+the live estimate changes. At `P̄_obs = 4000 W` (a steady mean or point reading), 10:30,
+`L = 0.5 kW`, 15 kWh / 50 % SOC / 5 % reserve / 0.95 efficiency:
 
 | Resolved cap | Result |
 |---|---|
@@ -270,8 +341,12 @@ load subtraction are deliberately conservative; the value can be tuned in one pl
   `charge_limit_source`.
 - **`ac_power_limit` is an AC input ceiling**, not necessarily a PV-to-battery limit. Using
   it as a cap is conservative.
-- **The curve is fixed to 07:00–18:00.** Before and after that window the fallback is linear,
-  so late solar charging is shown at its current rate rather than extrapolated.
+- **The curve window is a local estimate.** `app/daylight.py` uses Astral with approximate IP
+  coordinates, so a cloud host, VPN or CGNAT can be minutes to hours off. Set the three
+  `SOLAR_*` variables for a fixed site. With no usable location, a polar day or night, or an
+  invalid window, the canonical **07:00–18:00** fallback applies. Before and after the window
+  the fallback is linear, so late solar charging is shown at its current rate rather than
+  extrapolated.
 - **The PV mean is treated as the current value.** Around sunrise and sunset the ten-minute
   mean lags a rising or falling curve, so the inferred peak is slightly low in the morning and
   slightly high in the late afternoon. This is accepted and documented above.

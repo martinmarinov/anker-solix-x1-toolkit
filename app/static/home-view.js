@@ -21,11 +21,6 @@
   var currentView = null;
   var initialized = false;
 
-  var DAWN_START = 6 * 60;
-  var DAWN_END = 7 * 60;
-  var DUSK_START = 19 * 60;
-  var DUSK_END = 20 * 60;
-
   function $(id) { return document.getElementById(id); }
 
   function init() {
@@ -45,7 +40,8 @@
       batterySocUnit: $("batterySocUnit"), batterySummary: $("batterySummary"),
       clockTime: $("clockTime"), clockDate: $("clockDate"),
       statusDot: $("statusDot"), statusText: $("statusText"),
-      liveStatus: $("liveStatus"), alert: $("homeAlert")
+      liveStatus: $("liveStatus"), alert: $("homeAlert"),
+      daylightWatermark: $("daylightWatermark")
     };
     if (window.ResizeObserver) {
       var ro = new ResizeObserver(scheduleLayout);
@@ -75,6 +71,8 @@
     } else {
       timezone = "";
     }
+    Daylight.clear();
+    resetDaylightWatermark();
     lastTime = "";
     lastDate = "";
     updateClock();
@@ -125,14 +123,14 @@
   /* The server owns the calendar rule: eta.label is "15:09",
      "tomorrow 16:30" or "Sat 04 Jul 02:38". The browser only joins it to
      the averaged duration, so there is no second day-aware formatter here. */
-  function batteryReadout(est, batt) {
+  function batteryReadout(est, batt, sunsetClock) {
     var eta = est && est.eta;
     if (eta && eta.kind) {
       if (eta.kind === "at_full") return "Full";
       if (eta.kind === "at_empty") return "Empty";
       if (eta.kind === "to_soc") {
         if (!isNum(eta.soc)) return "";
-        return Math.round(Number(eta.soc)) + "% by " + (eta.at || "18:00");
+        return Math.round(Number(eta.soc)) + "% by " + (eta.at || sunsetClock || "");
       }
       if (eta.kind === "to_empty" || eta.kind === "to_full") {
         if (!isNum(eta.hours)) return "";
@@ -330,46 +328,23 @@
     }
   }
 
-  function localHour() {
-    var opts = { hour: "2-digit", hourCycle: "h23" };
-    if (timezone) opts.timeZone = timezone;
-    try {
-      return Number(new Intl.DateTimeFormat("en-GB", opts).format(new Date()));
-    } catch (e) {
-      return new Date().getHours();
-    }
-  }
-
   /* The backdrop follows the same once-a-minute clock tick the drawer uses.
-     Dusk 19:00-20:00 and dawn 06:00-07:00 ease across the hour; outside those
-     windows it is fully day or fully night. Two style writes per minute move
-     the two pixel-aligned layers, so the browser can keep the transition on
-     the compositor. */
-  function clockMinutes(clock) {
-    var m = /^(\d{1,2}):(\d{2})$/.exec(clock || "");
-    if (!m) return null;
-    return (Number(m[1]) % 24) * 60 + Number(m[2]);
-  }
-
-  function nightAmount(minutes) {
-    if (minutes >= DUSK_START && minutes < DUSK_END) {
-      return smoothstep((minutes - DUSK_START) / 60);
-    }
-    if (minutes >= DAWN_START && minutes < DAWN_END) {
-      return 1 - smoothstep((minutes - DAWN_START) / 60);
-    }
-    return (minutes >= DUSK_END || minutes < DAWN_START) ? 1 : 0;
-  }
-
-  function applySky(clock) {
+     Daylight owns the one-hour dawn/dusk easing around the server's sunrise
+     and sunset; outside those windows it is fully day or fully night. Two
+     style writes per minute move the two pixel-aligned layers, so the browser
+     can keep the transition on the compositor. */
+  function applySky(clock, at) {
     if (!sceneDay || !sceneNight) return;
-    var minutes = clockMinutes(clock);
+    var minutes = clock
+      ? Daylight.clockMinutes(clock)
+      : Daylight.minutesNow(at || new Date(), timezone);
     if (minutes === null) return;
-    var night = nightAmount(minutes);
+    var night = Daylight.nightAmount(minutes, Daylight.sunTimes());
+    if (night === null) return;
     sceneDay.style.opacity = String(1 - night);
     sceneNight.style.opacity = String(night);
     if (root) {
-      root.dataset.sky = night >= 1 ? "night" : (night <= 0 ? "day" : "dusk");
+      root.dataset.sky = Daylight.skyState(night);
     }
   }
 
@@ -378,8 +353,8 @@
     var solar = currentView && currentView.solar;
     var generating = !!(solar && (solar.state === "producing" ||
       (solar.w !== null && solar.w !== undefined && Number(solar.w) > 0)));
-    var hour = localHour();
-    var icon = generating ? "sun" : (hour >= 8 && hour < 20 ? "cloud" : "moon");
+    var minutes = Daylight.minutesNow(new Date(), timezone);
+    var icon = Daylight.solarIcon(generating, minutes, Daylight.sunTimes());
     els.solarIcon.dataset.icon = icon;
   }
 
@@ -393,9 +368,67 @@
     }
   }
 
+  var WATERMARK_PLACEHOLDER = "sunrise —\nsunset —";
+
+  function clockText(value) {
+    var m = /^(\d{1,2}):(\d{2})$/.exec(value || "");
+    if (!m) return null;
+    var hour = Number(m[1]);
+    var minute = Number(m[2]);
+    if (!isFinite(hour) || !isFinite(minute)) return null;
+    if (hour > 24 || minute > 59 || (hour === 24 && minute !== 0)) return null;
+    return (hour < 10 ? "0" : "") + hour + ":" +
+           (minute < 10 ? "0" : "") + minute;
+  }
+
+  function resetDaylightWatermark() {
+    var el = els.daylightWatermark;
+    if (!el) return;
+    el.textContent = WATERMARK_PLACEHOLDER;
+    el.dataset.source = "unknown";
+    el.title = "Waiting for the server's daylight window.";
+  }
+
+  /* A quiet debug block, not a second source of truth.  Only the server's
+     view.daylight reaches this function; invalid or missing values leave the
+     last known window in place. */
+  function renderDaylightWatermark(daylight) {
+    var el = els.daylightWatermark;
+    if (!el || !daylight || typeof daylight !== "object") return;
+    var sunrise = clockText(daylight.sunrise);
+    var sunset = clockText(daylight.sunset);
+    if (sunrise === null || sunset === null) return;
+    var source = daylight.source;
+    var label, title;
+    if (source === "ip") {
+      label = "est. ip";
+      title = "Estimated from the server's public IP; sunrise and sunset " +
+              "can be minutes to hours off.";
+    } else if (source === "config") {
+      label = "est. cfg";
+      title = "Estimated from the configured SOLAR_* coordinates.";
+    } else if (source === "explicit") {
+      label = "est.";
+      title = "Estimated from coordinates supplied by the server.";
+    } else {
+      label = "fallback";
+      title = "Location unavailable; showing the canonical 07:00-18:00 " +
+              "window.";
+    }
+    el.textContent = "sunrise " + sunrise + "\nsunset " + sunset + "\n" +
+                     label;
+    el.dataset.source = (source === "ip" || source === "config" ||
+                         source === "explicit") ? source : "default";
+    el.title = title;
+  }
+
   function render(view) {
     if (!view || !root) return;
     currentView = view;
+    if (view.daylight && Daylight.configure(view.daylight)) {
+      applySky(timeFormat().format(new Date()));
+    }
+    renderDaylightWatermark(view.daylight);
     var available = !!view.available;
     var stale = !!view.stale;
     var status = view.status || {};
@@ -432,7 +465,7 @@
       ? batt.estimate : null;
     root.dataset.estimate = (est && est.mode) || "unavailable";
 
-    var readout = batteryReadout(est, batt);
+    var readout = batteryReadout(est, batt, Daylight.sunsetClock());
 
     var capNote = "";
     if (est && est.solar && est.solar.capped &&

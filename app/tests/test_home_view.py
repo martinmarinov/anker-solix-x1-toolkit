@@ -4,10 +4,12 @@ from __future__ import annotations
 import os
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from daylight import SunTimes  # noqa: E402
 from home_view import build_home_view  # noqa: E402
 
 
@@ -401,6 +403,49 @@ class HomeViewTests(unittest.TestCase):
         self.assertEqual(full["battery"]["hours_to_full"], 0.0)
         self.assertIsNone(full["battery"]["hours_to_empty"])
         self.assertEqual(full["battery"]["estimate"]["eta"]["kind"], "at_full")
+
+    def test_daylight_default_contract_in_both_returns(self):
+        expected = {"sunrise": "07:00", "sunset": "18:00",
+                    "source": "default", "approximate": False}
+        unavailable = build_home_view(None)
+        self.assertEqual(unavailable["daylight"], expected)
+        available = build_home_view({
+            "available": True, "soc": 50, "pp": 0, "gp": 0, "bp": 0, "lp": 0,
+        })
+        self.assertEqual(available["daylight"], expected)
+
+    @patch("home_view.sun_times",
+           return_value=SunTimes(6.0, 19.0, source="explicit"))
+    def test_custom_daylight_reaches_the_view_and_eta(self, mocked):
+        ts = datetime(2026, 7, 1, 5, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(self._solar_snapshot(ts, pp=1200),
+                               tz="Europe/London")
+        mocked.assert_called_once()
+        self.assertEqual(view["daylight"],
+                         {"sunrise": "06:00", "sunset": "19:00",
+                          "source": "explicit", "approximate": False})
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "solar")
+        self.assertEqual(estimate["solar"]["as_of"], "06:30")
+        self.assertEqual(estimate["solar_end"], "19:00")
+        self.assertEqual(estimate["eta"]["kind"], "to_soc")
+        self.assertEqual(estimate["eta"]["at"], "19:00")
+
+    @patch("home_view.sun_times",
+           return_value=SunTimes(4.8, 21.35, source="ip"))
+    def test_location_is_forwarded_and_marks_the_window_approximate(
+            self, mocked):
+        ts = datetime(2026, 7, 1, 5, 30, tzinfo=timezone.utc).timestamp()
+        view = build_home_view(self._solar_snapshot(ts, pp=1200),
+                               tz="Europe/London", latitude=51.5074,
+                               longitude=-0.1278,
+                               location_source="ip_geojs")
+        mocked.assert_called_once_with(
+            date(2026, 7, 1), "Europe/London", 51.5074, -0.1278,
+            source="ip_geojs")
+        self.assertEqual(view["daylight"],
+                         {"sunrise": "04:48", "sunset": "21:21",
+                          "source": "ip", "approximate": True})
 
 
 if __name__ == "__main__":

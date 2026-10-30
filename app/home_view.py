@@ -18,7 +18,9 @@ power.
 from __future__ import annotations
 
 from battery_estimate import estimate_battery
+from daylight import sun_times
 from eta import local_datetime, local_hour
+from solar_forecast import format_hour
 from power_flow import (
     ACTIVE_W,
     battery_charge_w,
@@ -99,7 +101,24 @@ def _legacy_hours(estimate: dict) -> tuple[float | None, float | None]:
     return None, None
 
 
-def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
+def _daylight_payload(sun) -> dict:
+    """Public daylight contract: HH:MM plus the estimate's provenance."""
+    source = str(getattr(sun, "source", "default") or "default")
+    if source in ("ip", "ip_geojs", "ip_cache"):
+        source = "ip"
+    elif source in ("config", "configured"):
+        source = "config"
+    elif source not in ("explicit", "default"):
+        source = "default"
+    return {"sunrise": format_hour(sun.sunrise),
+            "sunset": format_hour(sun.sunset),
+            "source": source,
+            "approximate": source == "ip"}
+
+
+def build_home_view(snapshot: dict | None, now=None, tz: str = "", *,
+                    latitude=None, longitude=None,
+                    location_source: str = "explicit") -> dict:
     """Build the small, stable view model consumed by ``home-view.js``."""
     snap = snapshot if isinstance(snapshot, dict) else {}
     available = bool(snap.get("available"))
@@ -124,6 +143,15 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
         snap["reason"] = "no telemetry fields"
         available = False
 
+    # The window is computed before the unavailable return so the front end
+    # can render the correct sky and icon while telemetry is missing.  A
+    # missing timestamp falls back to the canonical window.
+    local_dt = local_datetime(now if now is not None else snap.get("ts"), tz)
+    local_hour_value = local_hour(local_dt)
+    sun = sun_times(local_dt.date() if local_dt else None, tz,
+                    latitude, longitude, source=location_source)
+    daylight = _daylight_payload(sun)
+
     if not available:
         reason = str(snap.get("reason") or "")
         connecting = reason in ("starting", "connecting", "")
@@ -133,6 +161,7 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
             "available": False,
             "stale": False,
             "age_s": age_s,
+            "daylight": daylight,
             "soc": None,
             "solar": {"w": None, "kw": None, "state": "unavailable",
                       "avg_kw": None},
@@ -206,8 +235,6 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
         usable_soc = max(0.0, min(100.0, soc_raw) - reserve)
         available_kwh = max(0.0, nominal * usable_soc / 100.0)
 
-    local_dt = local_datetime(now if now is not None else snap.get("ts"), tz)
-    local_hour_value = local_hour(local_dt)
     estimate = estimate_battery(
         soc=soc_raw,
         nominal_kwh=nominal,
@@ -225,6 +252,8 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
         now_dt=local_dt,
         charge_limit_kw=charge_limit_kw,
         charge_limit_source=charge_limit_source,
+        solar_start_hour=sun.sunrise,
+        solar_end_hour=sun.sunset,
     )
     hours_to_empty, hours_to_full = _legacy_hours(estimate)
     estimate = dict(estimate)
@@ -253,6 +282,7 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
         "available": True,
         "stale": stale,
         "age_s": age_s,
+        "daylight": daylight,
         "soc": soc,
         "solar": {**_power(solar_value), "state": solar_state,
                   "avg_kw": solar_avg_kw},

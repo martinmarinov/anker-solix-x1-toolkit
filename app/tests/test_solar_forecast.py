@@ -10,8 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from solar_forecast import (  # noqa: E402
     SOLAR_END_HOUR, SOLAR_START_HOUR, create_solar_curve, energy_kwh,
-    format_hour, remaining_solar_kwh, shape, solar_power_w,
-    time_to_generate_kwh, total_daily_solar_kwh,
+    format_hour, remaining_solar_kwh, resolve_solar_window, shape,
+    solar_power_w, time_to_generate_kwh, total_daily_solar_kwh,
 )
 
 
@@ -83,6 +83,43 @@ class SolarForecastTests(unittest.TestCase):
         self.assertEqual(format_hour(10.5), "10:30")
         self.assertEqual(format_hour(13.249), "13:15")
         self.assertEqual(format_hour(24), "24:00")
+
+    def test_custom_window_is_stored_on_the_curve(self):
+        curve = create_solar_curve(1200, 10.5, start_hour=6.0, end_hour=19.0)
+        self.assertEqual(curve.start_hour, 6.0)
+        self.assertEqual(curve.end_hour, 19.0)
+        self.assertAlmostEqual(curve.window_hours, 13.0)
+        self.assertAlmostEqual(shape(12.5, 6.0, 19.0), 1.0, places=9)
+        self.assertEqual(shape(6.0, 6.0, 19.0), 0.0)
+        self.assertEqual(shape(19.0, 6.0, 19.0), 0.0)
+
+    def test_custom_window_energy_uses_the_curve_bounds(self):
+        curve = create_solar_curve(1200, 10.5, start_hour=6.0, end_hour=19.0)
+        self.assertEqual(energy_kwh(curve, 0.0, 6.0), 0.0)
+        self.assertEqual(energy_kwh(curve, 19.0, 23.0), 0.0)
+        self.assertAlmostEqual(total_daily_solar_kwh(curve),
+                               energy_kwh(curve, 6.0, 19.0), places=9)
+        self.assertGreater(remaining_solar_kwh(curve, 18.0), 0.0)
+
+    def test_custom_observation_boundaries_are_rejected(self):
+        for hour in (6.0, 19.0, 5.9, 19.1):
+            with self.assertRaises(ValueError):
+                create_solar_curve(1000, hour, start_hour=6.0, end_hour=19.0)
+
+    def test_invalid_windows_are_rejected(self):
+        for start, end in ((19.0, 6.0), (6.0, 6.0), (-1.0, 19.0),
+                           (6.0, 25.0), (6.0, 5.0)):
+            with self.assertRaises(ValueError):
+                create_solar_curve(1000, 10.5, start_hour=start, end_hour=end)
+
+    def test_resolve_solar_window_falls_back_to_defaults(self):
+        self.assertEqual(resolve_solar_window(), (7.0, 18.0))
+        self.assertEqual(resolve_solar_window(None, 19.0), (7.0, 18.0))
+        self.assertEqual(resolve_solar_window(6.0, None), (7.0, 18.0))
+        self.assertEqual(resolve_solar_window("bad", 19.0), (7.0, 18.0))
+        self.assertEqual(resolve_solar_window(19.0, 6.0), (7.0, 18.0))
+        self.assertEqual(resolve_solar_window(6.0, 19.0), (6.0, 19.0))
+        self.assertEqual(resolve_solar_window(0.0, 24.0), (0.0, 24.0))
 
 
 if __name__ == "__main__":

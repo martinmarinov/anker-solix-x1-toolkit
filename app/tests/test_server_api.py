@@ -8,12 +8,16 @@ import sys
 import threading
 import time
 import unittest
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from http.server import ThreadingHTTPServer
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import home_view  # noqa: E402
 import server  # noqa: E402
+from daylight import SunTimes  # noqa: E402
+from solar_location import Location  # noqa: E402
 
 SID = "api-test-session"
 SITE = {"id": "site1", "name": "Home", "timezone": "Europe/London"}
@@ -106,6 +110,9 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(js["live_stats"]["interval_s"], 5)
         self.assertEqual(js["live"]["solar_avg_kw"], 1.2)
         self.assertTrue(js["view"]["available"])
+        self.assertEqual(js["view"]["daylight"],
+                         {"sunrise": "07:00", "sunset": "18:00",
+                          "source": "default", "approximate": False})
         self.assertEqual(js["view"]["battery"]["estimate"]["mode"], "idle")
         self.assertEqual(js["view"]["battery"]["charge_limit_kw"], 6.0)
 
@@ -188,6 +195,114 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(estimate["eta"]["kind"], "to_empty")
         self.assertEqual(estimate["eta"]["label"], "tomorrow 16:30")
         self.assertEqual(view["battery"]["hours_to_empty"], 30.0)
+
+    def test_live_ignores_daylight_query_parameters(self):
+        status, payload, _ = self.request(
+            "GET", f"/api/live?site={SITE['id']}&sn={SN}"
+                   "&sunrise=06:00&sunset=19:00")
+        self.assertEqual(status, 200)
+        view = json.loads(payload)["view"]
+        self.assertEqual(view["daylight"],
+                         {"sunrise": "07:00", "sunset": "18:00",
+                          "source": "default", "approximate": False})
+
+    def test_patched_sun_times_flow_through_the_response(self):
+        ts = datetime(2026, 7, 1, 5, 30, tzinfo=timezone.utc).timestamp()
+        original = self.feed.get
+        self.feed.get = lambda: {
+            "available": True, "ts": int(ts), "age_s": 4, "stale": False,
+            "waking": False, "pp": 1200, "gp": 0, "bp": -700, "lp": 500,
+            "soc": 50, "interval_s": 5, "count": 60, "stale_after_s": 30,
+            "nominal_capacity_kwh": 15.0, "reserve_soc": 5.0,
+            "batt_avg_net_kw": 0.7, "batt_avg_kw": 0.7, "load_avg_kw": 0.5,
+            "charge_limit_kw": 6.0, "charge_limit_source": "default_6kw",
+        }
+        try:
+            with patch("home_view.sun_times",
+                       return_value=SunTimes(6.0, 19.0, source="explicit")):
+                status, payload, _ = self.request(
+                    "GET", f"/api/live?site={SITE['id']}&sn={SN}")
+        finally:
+            self.feed.get = original
+        self.assertEqual(status, 200)
+        view = json.loads(payload)["view"]
+        self.assertEqual(view["daylight"],
+                         {"sunrise": "06:00", "sunset": "19:00",
+                          "source": "explicit", "approximate": False})
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "solar")
+        self.assertEqual(estimate["solar"]["as_of"], "06:30")
+        self.assertEqual(estimate["solar_end"], "19:00")
+        self.assertEqual(estimate["eta"]["at"], "19:00")
+
+    def test_live_uses_the_resolved_location_window(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        original = self.feed.get
+        self.feed.get = lambda: {
+            "available": True, "ts": int(ts), "age_s": 4, "stale": False,
+            "waking": False, "pp": 1200, "gp": 0, "bp": -700, "lp": 500,
+            "soc": 50, "interval_s": 5, "count": 60, "stale_after_s": 30,
+            "nominal_capacity_kwh": 15.0, "reserve_soc": 5.0,
+            "batt_avg_net_kw": 0.7, "batt_avg_kw": 0.7, "load_avg_kw": 0.5,
+            "charge_limit_kw": 6.0, "charge_limit_source": "default_6kw",
+        }
+        location = Location(51.5074, -0.1278, "Europe/London",
+                            source="ip_geojs")
+        try:
+            with patch("server.solar_location.get_location",
+                       return_value=location), \
+                    patch("home_view.sun_times",
+                          return_value=SunTimes(4.8, 21.35, source="ip")) as sun:
+                status, payload, _ = self.request(
+                    "GET", f"/api/live?site={SITE['id']}&sn={SN}")
+        finally:
+            self.feed.get = original
+        self.assertEqual(status, 200)
+        js = json.loads(payload)
+        self.assertEqual(js["timezone"], "Europe/London")
+        self.assertEqual(js["view"]["daylight"],
+                         {"sunrise": "04:48", "sunset": "21:21",
+                          "source": "ip", "approximate": True})
+        sun.assert_called_once_with(
+            date(2026, 7, 1), "Europe/London", 51.5074, -0.1278,
+            source="ip_geojs")
+
+    def test_live_falls_back_when_the_location_resolver_raises(self):
+        with patch("server.solar_location.get_location",
+                   side_effect=RuntimeError("boom")):
+            status, payload, _ = self.request(
+                "GET", f"/api/live?site={SITE['id']}&sn={SN}")
+        self.assertEqual(status, 200)
+        view = json.loads(payload)["view"]
+        self.assertEqual(view["daylight"],
+                         {"sunrise": "07:00", "sunset": "18:00",
+                          "source": "default", "approximate": False})
+
+    def test_location_timezone_replaces_a_missing_site_timezone(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        original = self.feed.get
+        self.feed.get = lambda: {
+            "available": True, "ts": int(ts), "age_s": 4, "stale": False,
+            "waking": False, "pp": 1200, "gp": 0, "bp": -700, "lp": 500,
+            "soc": 50, "interval_s": 5, "count": 60, "stale_after_s": 30,
+            "nominal_capacity_kwh": 15.0, "reserve_soc": 5.0,
+            "batt_avg_net_kw": 0.7, "batt_avg_kw": 0.7, "load_avg_kw": 0.5,
+            "charge_limit_kw": 6.0, "charge_limit_source": "default_6kw",
+        }
+        location = Location(40.7128, -74.0060, "America/New_York",
+                            source="ip_cache")
+        try:
+            with patch("server.Handler._site_timezone", return_value=""), \
+                    patch("server.solar_location.get_location",
+                          return_value=location), \
+                    patch("home_view.sun_times",
+                          return_value=SunTimes(5.5, 20.5, source="ip")):
+                status, payload, _ = self.request(
+                    "GET", f"/api/live?site={SITE['id']}&sn={SN}")
+        finally:
+            self.feed.get = original
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(payload)["timezone"], "America/New_York")
 
     def test_interval_post_reports_pending_and_sets_cookie(self):
         self.feed.calls.clear()

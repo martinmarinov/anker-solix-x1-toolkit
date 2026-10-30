@@ -565,6 +565,34 @@
 .status-dot.is-waiting { background: var(--muted); }
 .status-dot.is-offline { background: var(--bad); }
 
+/* ------------------------------------------- daylight estimate watermark */
+
+/* A faint technical readout for the server's estimate.  It is a debugger,
+   not dashboard information, so it stays small, quiet and click-through. */
+.daylight-watermark {
+  position: absolute;
+  z-index: 5;
+  right: calc(var(--u) * 1.6);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--u) * 2.4);
+  font-family: var(--mono);
+  font-size: clamp(9px, calc(var(--u) * 1.15), 12px);
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: .02em;
+  color: rgba(var(--muted-rgb), .55);
+  text-align: right;
+  white-space: pre-line;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .28);
+}
+
+/* The fallback is still quiet, but its amber tint says "not a real fix". */
+.daylight-watermark[data-source="default"] {
+  color: rgba(161, 98, 7, .62);
+}
+
 /* --------------------------------------------------------------- flows */
 
 .flow-layer {
@@ -755,6 +783,11 @@
     top: auto;
     bottom: .5%;
     transform: translateX(-50%);
+  }
+
+  /* The compact block sits beside the centred Home card. */
+  .daylight-watermark {
+    right: 3%;
   }
 
   .menu-btn {
