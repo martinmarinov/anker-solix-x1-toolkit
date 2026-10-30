@@ -39,7 +39,8 @@
   --info: #0b6e99;
   --info-soft: #e0f2fe;
   /* Skylight meter fills: bright accents sampled from the calendar chips and
-     the battery. Each card's readout and icon use the same fill as its bars. */
+     the battery. Each card's top rule, shadow and readout glow use the same
+     fill as its bars; the readout and icon stay page ink. */
   --bar-green: #7acc70;
   --bar-green-rgb: 122, 204, 112;
   --bar-amber: #e6be4a;
@@ -47,8 +48,8 @@
   --bar-blue: #447cd6;
   --bar-blue-rgb: 68, 124, 214;
   --bar-edge: rgba(23, 37, 47, .40);
-  /* Darker shades of each fill for the 1px readout/icon edge. These sit on
-     cream, so they stay softer than the page ink. */
+  /* Darker shades of each fill for the dense 1px core of the readout/icon
+     glow. These sit on cream, so they stay softer than the page ink. */
   --edge-green: #5f9661;
   --edge-amber: #a18c48;
   --edge-blue: #3561a4;

@@ -184,8 +184,15 @@ class StaticRuntimeTests(unittest.TestCase):
         self.assertIn("border-top: 4px solid var(--card-accent)", css)
         self.assertIn("background: linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%)", css)
         self.assertIn(".tile-value", css)
-        self.assertIn("color: var(--card-accent)", css)
-        self.assertIn("color: var(--ink);", css)
+        value = re.search(r"\.tile-value \{(.*?)\}", css, re.S)
+        icon = re.search(r"\.tile-icon \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(value)
+        self.assertIsNotNone(icon)
+        self.assertIn("color: var(--ink)", value.group(1))
+        self.assertIn("color: var(--ink)", icon.group(1))
+        self.assertNotIn("color: var(--card-accent)", value.group(1))
+        self.assertNotIn("color: var(--card-accent)", icon.group(1))
+        self.assertNotIn("-webkit-text-stroke", css)
         self.assertNotIn("#06111d", css)
         self.assertNotIn("#081724", css)
         self.assertNotIn("rgba(16, 32, 49", css)
@@ -220,9 +227,10 @@ class StaticRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(icon)
         self.assertIsNotNone(value)
         self.assertIsNotNone(unit)
-        self.assertIn("color: var(--card-accent)", icon.group(1))
-        self.assertIn("color: var(--card-accent)", value.group(1))
+        self.assertIn("color: var(--ink)", icon.group(1))
+        self.assertIn("color: var(--ink)", value.group(1))
         self.assertIn("color: inherit", unit.group(1))
+        self.assertIn("rgba(var(--card-accent-rgb)", value.group(1))
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
         self.assertIn("function setCardLevel", js)
         self.assertEqual(js.count("setCardLevel(el, band)"), 3)
@@ -248,12 +256,15 @@ class StaticRuntimeTests(unittest.TestCase):
         # The card accent reads these same tokens; the rim below keeps the
         # pale bar silhouettes above the 3:1 non-text floor.
 
-    def test_solar_icon_inherits_the_card_accent(self):
+    def test_solar_icon_keeps_the_ink_fill_for_every_variant(self):
         css = (STATIC / "css/home.css").read_text(encoding="utf-8")
         self.assertNotRegex(
             css,
             r'\.solar-icon\[data-icon="(?:moon|cloud)"\][^{]*\{[^}]*color:',
         )
+        icon = re.search(r"\.tile-icon \{(.*?)\}", css, re.S)
+        self.assertIsNotNone(icon)
+        self.assertIn("color: var(--ink)", icon.group(1))
 
     def test_filled_bars_have_a_dark_rim(self):
         base = (STATIC / "css/base.css").read_text(encoding="utf-8")
@@ -268,7 +279,7 @@ class StaticRuntimeTests(unittest.TestCase):
         self.assertIn("border: 1px solid rgba(122, 108, 88, .18)",
                       track.group(1))
 
-    def test_card_readout_and_icon_have_a_dark_outline(self):
+    def test_card_readout_and_icon_glow_with_the_meter_colour(self):
         base = (STATIC / "css/base.css").read_text(encoding="utf-8")
         for token, value in (("edge-green", "#5f9661"),
                              ("edge-amber", "#a18c48"),
@@ -285,18 +296,48 @@ class StaticRuntimeTests(unittest.TestCase):
                             ("export", "edge-blue"),
                             ("off", "edge-off")):
             self.assertIn(f"--card-edge: var(--{edge});", css)
-        readout = re.search(r"\.tile-value,\s*\.tile-unit \{(.*?)\}", css, re.S)
+        self.assertIn("--glow-ring: calc(calc(var(--u) * .30) * var(--type-scale));", css)
+        self.assertIn("--glow-bloom: calc(calc(var(--u) * .68) * var(--type-scale));", css)
+        self.assertIn("--glow-wide: calc(calc(var(--u) * 1.05) * var(--type-scale));", css)
+        self.assertNotIn("-webkit-text-stroke", css)
+        self.assertNotIn("drop-shadow(1px 0 0", css)
+        readout = re.search(r"\.tile-value \{(.*?)\}", css, re.S)
         self.assertIsNotNone(readout)
-        self.assertIn("-webkit-text-stroke: 1px var(--card-edge)",
-                      readout.group(1))
+        for shadow in (
+            "0 0 1px var(--card-edge)",
+            "0 0 var(--glow-ring) var(--card-accent)",
+            "0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50)",
+            "0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22)",
+        ):
+            self.assertIn(shadow, readout.group(1))
         icon = re.search(r"\.tile-icon \{(.*?)\}", css, re.S)
         self.assertIsNotNone(icon)
         self.assertEqual(icon.group(1).count("drop-shadow("), 4)
-        for edge in ("1px 0 0", "-1px 0 0", "0 1px 0", "0 -1px 0"):
-            self.assertIn(
-                f"drop-shadow({edge} var(--card-edge))",
-                icon.group(1),
-            )
+        for shadow in (
+            "0 0 1px var(--card-edge)",
+            "0 0 var(--glow-ring) var(--card-accent)",
+            "0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50)",
+            "0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22)",
+        ):
+            self.assertIn(f"drop-shadow({shadow})", icon.group(1))
+
+    def test_unavailable_cards_drop_the_glow(self):
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        value = re.search(
+            r'\.home-stage\[data-available="false"\] \.tile-value \{(.*?)\}',
+            css, re.S,
+        )
+        icon = re.search(
+            r'\.home-stage\[data-available="false"\] \.tile-icon \{(.*?)\}',
+            css, re.S,
+        )
+        self.assertIsNotNone(value)
+        self.assertIsNotNone(icon)
+        self.assertIn("color: var(--slate)", value.group(1))
+        self.assertIn("text-shadow: none", value.group(1))
+        self.assertIn("color: var(--slate)", icon.group(1))
+        self.assertIn("opacity: .62", icon.group(1))
+        self.assertIn("filter: none", icon.group(1))
 
     def test_portrait_home_wire_routes_around_the_caption(self):
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")

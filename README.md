@@ -8,8 +8,8 @@ own account. It runs on a local machine, NAS or small server.
   <img src="docs/daylight-dashboard.webp" width="480"
        alt="Daylight wall dashboard: solar 0.00 kW, grid importing 7.36 kW, battery 31 percent, home load 3.40 kW">
 </p>
-<p align="center"><em>Live dashboard on a portrait wall display. Card colour and shadow follow
-the active meter band; battery text uses the page ink.</em></p>
+<p align="center"><em>Live dashboard on a portrait wall display. Card chrome and readout glow
+follow the active meter band; values, units and icons stay page ink.</em></p>
 
 > **Not affiliated with Anker.** This uses an undocumented private API. It can change or
 > break without notice. You are responsible for what you write to your system.

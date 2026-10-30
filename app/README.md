@@ -120,16 +120,18 @@ capacity, never offered as a plan target.
   house is consuming. Active paths also carry a slow dotted "walking wire" in the same colour
   as the arrow, moving toward the arrowhead. The battery is the visual hub; charge/discharge
   is shown by its fill and the summary line. The house is background artwork, not a flow node.
-- **Cards take their meter's colour.** Each card's kW value/unit, icon, top rule and tinted
-  drop shadow use the same fill as its lit bars: leaf green `#7acc70`, amber `#e6be4a`, blue
-  `#447cd6`; red `#b91c1c` and the gray track are unchanged. The card label stays ink. The
-  readout gets a 1px text stroke and the icon a matching four-way shadow in a darker shade of
-  its own fill (`#5f9661`, `#a18c48`, `#3561a4`, `#862c30`), so it stays legible without a
-  black halo. The accents are sampled from the calendar chips and battery: the chip bodies are
-  50% tints, so the solid corner and badge are the source colours. A 1px page-ink rim
-  (`rgba(23,37,47,.40)`) darkens each lit bar at its own edge — a shade of the fill, not a
-  gray outline — and lifts the pale amber/green silhouettes past the 3:1 non-text floor. An
-  unavailable card falls back to slate.
+- **Cards take their meter's colour.** Each card's top rule, tinted drop shadow and readout
+  glow use the same fill as its lit bars: leaf green `#7acc70`, amber `#e6be4a`, blue
+  `#447cd6`; red `#b91c1c` and the gray track are unchanged. The card label, kW value, unit
+  and icon stay page ink (`#17252f`, the battery percentage's colour), so the number keeps
+  maximum contrast. The glow is a dense 1px core in a darker shade of the fill (`#5f9661`,
+  `#a18c48`, `#3561a4`, `#862c30`), the fill itself, then two soft blooms at 50% and 22%.
+  All four centred layers scale with `--u` and `--type-scale`: 0 offsets read as emission,
+  not a drop shadow. The accents are sampled from the calendar chips and battery: the chip
+  bodies are 50% tints, so the solid corner and badge are the source colours. A 1px page-ink
+  rim (`rgba(23,37,47,.40)`) darkens each lit bar at its own edge — a shade of the fill, not
+  a gray outline — and lifts the pale amber/green silhouettes past the 3:1 non-text floor. An
+  unavailable card falls back to slate and drops the glow.
 - **Home Load meter.** Five segments sit under the Home Load value. Below 2 kW one green
   bar; below 3 kW two green; below 4 kW three amber; below 5 kW four amber; 5 kW and above
   five red. It reads `view.home.w`, stays unlit until a real home reading exists, and its

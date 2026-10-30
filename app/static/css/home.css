@@ -99,6 +99,10 @@
   --card-accent: var(--muted);
   --card-accent-rgb: var(--muted-rgb);
   --card-border: #ded6c7;
+  --card-edge: var(--edge-off);
+  --glow-ring: calc(calc(var(--u) * .30) * var(--type-scale));
+  --glow-bloom: calc(calc(var(--u) * .68) * var(--type-scale));
+  --glow-wide: calc(calc(var(--u) * 1.05) * var(--type-scale));
   position: absolute;
   pointer-events: auto;
   display: flex;
@@ -113,7 +117,7 @@
     0 12px 28px rgba(var(--card-accent-rgb), .18),
     0 2px 4px rgba(69, 56, 36, .06),
     inset 0 1px 0 rgba(255, 255, 255, .90);
-  color: var(--card-accent);
+  color: var(--ink);
 }
 
 .tile--solar {
@@ -192,13 +196,14 @@
   flex: none;
   width: calc(calc(var(--u) * 7.8) * var(--type-scale));
   height: calc(calc(var(--u) * 7.8) * var(--type-scale));
-  color: var(--card-accent);
-  /* Four 1px shadows trace the SVG silhouette without altering its paths. */
+  color: var(--ink);
+  /* Four centred shadows trace the SVG alpha: a dense core in the fill's
+     darker shade, then the bar fill and two soft blooms. */
   filter:
-    drop-shadow(1px 0 0 var(--card-edge))
-    drop-shadow(-1px 0 0 var(--card-edge))
-    drop-shadow(0 1px 0 var(--card-edge))
-    drop-shadow(0 -1px 0 var(--card-edge));
+    drop-shadow(0 0 1px var(--card-edge))
+    drop-shadow(0 0 var(--glow-ring) var(--card-accent))
+    drop-shadow(0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50))
+    drop-shadow(0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22));
 }
 .tile-icon svg { display: block; width: 100%; height: 100%; }
 
@@ -225,13 +230,20 @@
   align-items: baseline;
   gap: calc(var(--u) * 1.1);
   margin-top: calc(var(--u) * .55);
-  color: var(--card-accent);
+  color: var(--ink);
   font-size: calc(var(--fs-value) * var(--type-scale));
   line-height: .95;
   font-weight: 700;
   letter-spacing: -.035em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  /* The meter lights the dark readout from behind: centred core, ring and
+     blooms. 0 0 offsets keep it a halo rather than a drop shadow. */
+  text-shadow:
+    0 0 1px var(--card-edge),
+    0 0 var(--glow-ring) var(--card-accent),
+    0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50),
+    0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22);
 }
 
 .tile-unit {
@@ -239,12 +251,6 @@
   font-weight: 600;
   letter-spacing: 0;
   color: inherit;
-}
-
-/* The bright fills are low-contrast on cream; the readout gets a 1px dark edge. */
-.tile-value,
-.tile-unit {
-  -webkit-text-stroke: 1px var(--card-edge);
 }
 
 .tile-foot {
@@ -260,11 +266,12 @@
 }
 
 /* Five-segment power meters shared by Solar, Grid and Home Load. One/two bars
-   are green, three/four amber and five red; Grid export uses blue. Fills are
-   the bright Skylight accents, and the card readout matches them.
-   Solid fills, no glow: the panel's contrast is modest and thin luminous
-   lines disappear at distance. The 1px ink rim on a lit bar darkens the fill
-   at its own edge and keeps the pale silhouettes crisp. */
+   are green, three/four amber and five red; Grid export uses blue. The bars,
+   the card's top rule, its tinted shadow and the readout glow all use the
+   bright Skylight accent.
+   The bars themselves stay solid: the panel's contrast is modest and thin
+   luminous lines disappear at distance. The 1px ink rim on a lit bar darkens
+   the fill at its own edge and keeps the pale silhouettes crisp. */
 .power-bars {
   --bar-color: var(--muted);
   grid-column: 1 / -1;
@@ -297,8 +304,15 @@
   --card-accent-rgb: var(--slate-rgb);
   --card-border: #ded6c7;
 }
-.home-stage[data-available="false"] .tile-icon { opacity: .62; }
-.home-stage[data-available="false"] .tile-value { color: var(--slate); }
+.home-stage[data-available="false"] .tile-icon {
+  color: var(--slate);
+  opacity: .62;
+  filter: none;
+}
+.home-stage[data-available="false"] .tile-value {
+  color: var(--slate);
+  text-shadow: none;
+}
 
 .home-stage[data-stale="true"] .tile {
   opacity: .76;
