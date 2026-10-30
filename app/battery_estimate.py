@@ -15,7 +15,9 @@ from the live snapshot (realtime EMS -> device attributes -> 6 kW fallback).
 from __future__ import annotations
 
 import math
+from datetime import datetime
 
+from eta import clock_at, format_eta_label, local_hour
 from limits import FALLBACK_MAX_CHARGE_KW
 from solar_forecast import (
     SOLAR_END_HOUR,
@@ -33,6 +35,11 @@ GRID_MODE_W = 50.0
 BATTERY_EFFICIENCY = 0.95
 _SOC_EPS = 1e-6
 
+ETA_KINDS = frozenset({"none", "at_full", "at_empty", "to_full", "to_empty",
+                       "to_soc"})
+PHASES = frozenset({"unavailable", "idle", "full", "discharging", "charging"})
+SOURCES = frozenset({"none", "battery", "solar", "grid", "mixed", "unknown"})
+
 
 def _number(value):
     try:
@@ -48,10 +55,62 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def _clock_after(now_hour: float | None, hours: float | None) -> str | None:
-    if now_hour is None or hours is None or not math.isfinite(hours):
+def _legacy_clock(now_hour, hours):
+    """Time-of-day fallback for callers that have no calendar date."""
+    now = _number(now_hour)
+    span = _number(hours)
+    if now is None or span is None:
         return None
-    return format_hour((now_hour + hours) % 24.0)
+    return format_hour((now + span) % 24.0)
+
+
+def _result(*, mode, phase, source, rate_kw=None, hours=None, now=None,
+            now_hour=None, soc_final=None, solar_end=None, solar=None,
+            reason="", eta_kind="none", eta_soc=None, eta_at=None) -> dict:
+    """Build every estimate with the same schema and one clock/label rule.
+
+    ``clock`` is the actual target time-of-day.  ``eta.label`` adds the
+    calendar hint.  When a caller supplies only ``now_hour`` (no date), the
+    clock falls back to the old modulo arithmetic and the label stays bare;
+    the live view always supplies ``now``.
+    """
+    if eta_kind not in ETA_KINDS:
+        raise ValueError(f"unknown eta kind: {eta_kind}")
+    if phase not in PHASES:
+        raise ValueError(f"unknown phase: {phase}")
+    if source not in SOURCES:
+        raise ValueError(f"unknown source: {source}")
+
+    span = _number(hours)
+    clock = label = None
+    if span is not None:
+        if now is not None:
+            clock = clock_at(now, span)
+            label = format_eta_label(now, span)
+        else:
+            clock = _legacy_clock(now_hour, span)
+            label = clock
+    rate = _number(rate_kw)
+    return {
+        "mode": mode,              # legacy formula: solar | grid | charging | ...
+        "phase": phase,            # averaged state: the time basis for this ETA
+        "source": source,          # where the charge/discharge comes from
+        "rate_kw": round(rate, 3) if rate is not None else None,
+        "hours": span,
+        "clock": clock,            # actual target HH:MM (not modulo 24 h)
+        "soc_final": soc_final,
+        "solar_end": solar_end,
+        "solar": solar,
+        "eta": {
+            "kind": eta_kind,
+            "hours": span,
+            "clock": clock,
+            "label": label,        # tomorrow / date prefix, server-owned
+            "soc": eta_soc,
+            "at": eta_at,
+        },
+        "reason": reason,
+    }
 
 
 def _resolve_rate(battery_avg_net_w, battery_net_w, battery_avg_kw):
@@ -128,7 +187,7 @@ def _crossing_morning(curve, load_kw: float) -> float:
 def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
                     reserve: float, load_kw: float, cap_kw: float,
                     cap_source: str, efficiency: float,
-                    observed_rate_kw: float) -> dict:
+                    observed_rate_kw: float, now=None) -> dict:
     """Build the solar-mode estimate and diagnostics."""
     load_kw = max(0.0, load_kw)
     cap_kw = _number(cap_kw)
@@ -185,48 +244,52 @@ def _solar_estimate(*, curve, t0: float, soc: float, nominal: float,
             t_full = (lo + hi) / 2.0
         hours = max(0.0, t_full - t0)
         solar["solar_end"] = None
-        return {
-            "mode": "solar",
-            "rate_kw": round(observed_rate_kw, 3),
-            "hours": hours,
-            "clock": _clock_after(t0, hours),
-            "soc_final": None,
-            "solar_end": None,
-            "solar": solar,
-        }
+        return _result(
+            mode="solar", phase="charging", source="solar",
+            rate_kw=observed_rate_kw, hours=hours, now=now, now_hour=t0,
+            solar_end=None, solar=solar, reason="solar_curve",
+            eta_kind="to_full")
 
     e_final_dc = (efficiency * e_plus_capped(SOLAR_END_HOUR)
                   - _negative_energy(curve, t0, SOLAR_END_HOUR, load_kw)
                   / efficiency)
     soc_final = _clamp(soc + e_final_dc / nominal * 100.0, reserve, 100.0)
-    solar["solar_end"] = format_hour(SOLAR_END_HOUR)
+    solar_end = format_hour(SOLAR_END_HOUR)
+    solar["solar_end"] = solar_end
     solar["soc_final"] = round(soc_final, 1)
-    return {
-        "mode": "solar",
-        "rate_kw": round(observed_rate_kw, 3),
-        "hours": None,
-        "clock": None,
-        "soc_final": round(soc_final, 1),
-        "solar_end": format_hour(SOLAR_END_HOUR),
-        "solar": solar,
-    }
+    return _result(
+        mode="solar", phase="charging", source="solar",
+        rate_kw=observed_rate_kw, hours=None, now=now, now_hour=t0,
+        soc_final=round(soc_final, 1), solar_end=solar_end, solar=solar,
+        reason="solar_curve", eta_kind="to_soc",
+        eta_soc=round(soc_final, 1), eta_at=solar_end)
 
 
 def estimate_battery(*, soc, nominal_kwh, reserve_soc,
                      battery_net_w=None, battery_avg_net_w=None,
                      battery_avg_kw=None, solar_w=0, grid_import_w=0,
                      grid_export_w=0, home_w=0, load_avg_kw=None,
-                     now_hour=None, charge_limit_kw=None,
+                     now_hour=None, now_dt=None, charge_limit_kw=None,
                      charge_limit_source="runtime",
                      efficiency=BATTERY_EFFICIENCY) -> dict:
-    """Return the estimate mode and, when calculable, its duration and clock."""
+    """Return the estimate mode and, when calculable, its duration and clock.
+
+    ``now_dt`` supplies the calendar date for the label; ``now_hour`` remains
+    the decimal local hour used by the solar-curve window.  This is the only
+    averaged time estimate in the view model; every other battery field stays
+    instantaneous.
+    """
+    now = now_dt if isinstance(now_dt, datetime) else None
+    hour = _number(now_hour)
+    if hour is None and now is not None:
+        hour = local_hour(now)
+
     nominal = _number(nominal_kwh)
     soc_raw = _number(soc)
     reserve = _number(reserve_soc)
     if nominal is None or nominal <= 0 or soc_raw is None or reserve is None:
-        return {"mode": "unavailable", "rate_kw": None, "hours": None,
-                "clock": None, "soc_final": None, "solar_end": None,
-                "solar": None, "reason": "missing_battery_data"}
+        return _result(mode="unavailable", phase="unavailable", source="none",
+                       now=now, now_hour=hour, reason="missing_battery_data")
 
     soc = _clamp(soc_raw, 0.0, 100.0)
     reserve = _clamp(reserve, 0.0, 100.0)
@@ -235,71 +298,67 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
 
     b_w = _resolve_rate(battery_avg_net_w, battery_net_w, battery_avg_kw)
     if b_w is None:
-        return {"mode": "unavailable", "rate_kw": None, "hours": None,
-                "clock": None, "soc_final": None, "solar_end": None,
-                "solar": None, "reason": "no_battery_rate"}
+        return _result(mode="unavailable", phase="unavailable", source="none",
+                       now=now, now_hour=hour, reason="no_battery_rate")
     b_w = float(b_w)
     rate_kw = abs(b_w) / 1000.0
-    now = _number(now_hour)
 
     if soc >= 100.0 - _SOC_EPS and b_w >= 0:
-        return {"mode": "full", "rate_kw": 0.0, "hours": 0.0,
-                "clock": format_hour(now) if now is not None else None,
-                "soc_final": 100.0, "solar_end": None, "solar": None,
-                "reason": "full"}
+        return _result(mode="full", phase="full", source="none",
+                       rate_kw=0.0, hours=0.0, now=now, now_hour=hour,
+                       soc_final=100.0, reason="full", eta_kind="at_full")
 
     if b_w <= -BATTERY_IDLE_W:
         hours = (available_kwh * efficiency / rate_kw) if rate_kw > 0 else None
-        return {"mode": "discharging", "rate_kw": round(rate_kw, 3),
-                "hours": hours,
-                "clock": _clock_after(now, hours),
-                "soc_final": None, "solar_end": None, "solar": None,
-                "reason": "discharging"}
+        kind = "at_empty" if available_kwh <= _SOC_EPS else "to_empty"
+        if kind == "at_empty":
+            hours = 0.0
+        return _result(mode="discharging", phase="discharging",
+                       source="battery", rate_kw=rate_kw, hours=hours,
+                       now=now, now_hour=hour, reason="discharging",
+                       eta_kind=kind if hours is not None else "none")
 
     if b_w < 0 or abs(b_w) < 1e-9:
-        return {"mode": "idle", "rate_kw": round(rate_kw, 3), "hours": None,
-                "clock": None, "soc_final": None, "solar_end": None,
-                "solar": None, "reason": "idle_below_50w"}
+        return _result(mode="idle", phase="idle", source="none",
+                       rate_kw=rate_kw, hours=None, now=now, now_hour=hour,
+                       reason="idle_below_50w")
 
-    # b_w > 0: charging.
+    # b_w > 0: charging.  The averaged rate is the ETA input; the momentary
+    # solar/grid readings only choose the formula.
     solar_value = max(0.0, _number(solar_w) or 0.0)
     grid_in = max(0.0, _number(grid_import_w) or 0.0)
     grid_out = max(0.0, _number(grid_export_w) or 0.0)
-    home_value = max(0.0, _number(home_w) or 0.0)
+    solar_source = "solar" if solar_value > SOLAR_MIN_OBS_W else "none"
 
     if grid_in > GRID_MODE_W:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
-        return {"mode": "grid", "rate_kw": round(rate_kw, 3),
-                "hours": hours,
-                "clock": _clock_after(now, hours),
-                "soc_final": None, "solar_end": None, "solar": None,
-                "reason": "grid_priority"}
+        return _result(mode="grid", phase="charging", source="grid",
+                       rate_kw=rate_kw, hours=hours, now=now, now_hour=hour,
+                       reason="grid_priority",
+                       eta_kind="to_full" if hours is not None else "none")
 
-    in_window = (now is not None
-                 and SOLAR_START_HOUR < now < SOLAR_END_HOUR)
+    in_window = (hour is not None
+                 and SOLAR_START_HOUR < hour < SOLAR_END_HOUR)
     if not in_window:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
-        return {"mode": "charging", "rate_kw": round(rate_kw, 3),
-                "hours": hours,
-                "clock": _clock_after(now, hours),
-                "soc_final": None, "solar_end": None, "solar": None,
-                "reason": "outside_solar_window"}
+        return _result(mode="charging", phase="charging", source=solar_source,
+                       rate_kw=rate_kw, hours=hours, now=now, now_hour=hour,
+                       reason="outside_solar_window",
+                       eta_kind="to_full" if hours is not None else "none")
 
     if solar_value <= SOLAR_MIN_OBS_W:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
-        return {"mode": "charging", "rate_kw": round(rate_kw, 3),
-                "hours": hours,
-                "clock": _clock_after(now, hours),
-                "soc_final": None, "solar_end": None, "solar": None,
-                "reason": "no_usable_solar"}
+        return _result(mode="charging", phase="charging", source="none",
+                       rate_kw=rate_kw, hours=hours, now=now, now_hour=hour,
+                       reason="no_usable_solar",
+                       eta_kind="to_full" if hours is not None else "none")
 
     if grid_out > GRID_MODE_W:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
-        return {"mode": "charging", "rate_kw": round(rate_kw, 3),
-                "hours": hours,
-                "clock": _clock_after(now, hours),
-                "soc_final": None, "solar_end": None, "solar": None,
-                "reason": "exporting_surplus"}
+        return _result(mode="charging", phase="charging", source="solar",
+                       rate_kw=rate_kw, hours=hours, now=now, now_hour=hour,
+                       reason="exporting_surplus",
+                       eta_kind="to_full" if hours is not None else "none")
 
     load_kw = _number(load_avg_kw)
     if load_kw is None:
@@ -308,24 +367,21 @@ def estimate_battery(*, soc, nominal_kwh, reserve_soc,
 
     try:
         curve = create_solar_curve(
-            solar_value, now,
+            solar_value, hour,
             risk_factor=SOLAR_RISK_FACTOR,
             max_peak_multiplier=SOLAR_MAX_PEAK_MULTIPLIER)
     except ValueError:
         hours = deficit / (rate_kw * efficiency) if rate_kw > 0 else None
-        return {"mode": "charging", "rate_kw": round(rate_kw, 3),
-                "hours": hours,
-                "clock": _clock_after(now, hours),
-                "soc_final": None, "solar_end": None, "solar": None,
-                "reason": "invalid_solar_observation"}
+        return _result(mode="charging", phase="charging", source="solar",
+                       rate_kw=rate_kw, hours=hours, now=now, now_hour=hour,
+                       reason="invalid_solar_observation",
+                       eta_kind="to_full" if hours is not None else "none")
 
     cap = _number(charge_limit_kw)
     if cap is None or cap <= 0:
         cap = FALLBACK_MAX_CHARGE_KW
         charge_limit_source = "default_6kw"
-    result = _solar_estimate(
-        curve=curve, t0=now, soc=soc, nominal=nominal, reserve=reserve,
+    return _solar_estimate(
+        curve=curve, t0=hour, soc=soc, nominal=nominal, reserve=reserve,
         load_kw=load_kw, cap_kw=cap, cap_source=charge_limit_source,
-        efficiency=efficiency, observed_rate_kw=rate_kw)
-    result["reason"] = "solar_curve"
-    return result
+        efficiency=efficiency, observed_rate_kw=rate_kw, now=now)

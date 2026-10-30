@@ -12,6 +12,7 @@ app/
   anker_client.py     protocol client: login, sites, devices, plan, write, validation
   power_flow.py       pure edge/aggregate parsing -> signed solar/grid/battery/home W
   solar_forecast.py   single-reading half-sine solar model
+  eta.py              clock and calendar labels for the estimate
   battery_estimate.py mode selection, load compensation, charge-cap energy math
   limits.py           dynamic charge-limit extraction and the 6 kW fallback
   home_view.py        pure telemetry -> dashboard view-model mapping (tested)
@@ -113,6 +114,9 @@ capacity, never offered as a plan target.
   APIs exposed **no** charge cap, so the 6 kW fallback is the path in use; a just-saved plan
   supplies its written value until the next read. If the curve cannot fill the pack, the
   caption shows the expected SOC at 18:00 (`87% by 18:00`) instead of a fake finish time.
+  Only the estimate is averaged; the card’s watts/state, flows and meters stay instantaneous.
+  The estimate’s clock is the actual target time, and estimates over 12 h add `tomorrow` or
+  the target calendar date (`Sun 01 Nov 08:38`) on the server.
   The model and its limits are in [`docs/SOLAR-ESTIMATE.md`](../docs/SOLAR-ESTIMATE.md).
 - **Flows are measured, not guessed.** `home-view.js` measures the solar/grid/home cards and
   the battery shell, then redraws the SVG paths on resize/orientation change. Solar runs

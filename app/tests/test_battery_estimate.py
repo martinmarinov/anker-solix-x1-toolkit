@@ -4,10 +4,18 @@ from __future__ import annotations
 import os
 import sys
 import unittest
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from battery_estimate import estimate_battery  # noqa: E402
+from battery_estimate import (  # noqa: E402
+    ETA_KINDS,
+    PHASES,
+    SOURCES,
+    estimate_battery,
+)
+
+NOW = datetime(2026, 7, 1, 10, 30)
 
 
 def estimate(**overrides):
@@ -15,7 +23,7 @@ def estimate(**overrides):
         soc=50, nominal_kwh=15, reserve_soc=5,
         battery_avg_net_w=700, battery_net_w=700,
         solar_w=0, grid_import_w=0, grid_export_w=0,
-        home_w=500, load_avg_kw=0.5, now_hour=10.5,
+        home_w=500, load_avg_kw=0.5, now_hour=10.5, now_dt=NOW,
         charge_limit_kw=6.0, charge_limit_source="default_6kw",
     )
     base.update(overrides)
@@ -38,7 +46,11 @@ class ModeTests(unittest.TestCase):
     def test_full(self):
         result = estimate(battery_avg_net_w=0, soc=100)
         self.assertEqual(result["mode"], "full")
+        self.assertEqual(result["phase"], "full")
+        self.assertEqual(result["source"], "none")
         self.assertEqual(result["hours"], 0.0)
+        self.assertEqual(result["clock"], "10:30")
+        self.assertEqual(result["eta"]["kind"], "at_full")
         self.assertEqual(result["solar_end"], None)
 
     def test_legacy_average_with_zero_instant_is_idle(self):
@@ -51,6 +63,10 @@ class ModeTests(unittest.TestCase):
         result = estimate(battery_avg_net_w=-1500, soc=50)
         self.assertAlmostEqual(result["hours"], 4.275, places=6)
         self.assertEqual(result["clock"], "14:46")
+        self.assertEqual(result["phase"], "discharging")
+        self.assertEqual(result["source"], "battery")
+        self.assertEqual(result["eta"]["kind"], "to_empty")
+        self.assertEqual(result["eta"]["label"], "14:46")
 
     def test_grid_priority_uses_legacy_deficit(self):
         result = estimate(grid_import_w=60, solar_w=4000,
@@ -59,6 +75,10 @@ class ModeTests(unittest.TestCase):
         # deficit = 15 - 6.75 = 8.25 kWh; 0.7 kW * 0.95.
         self.assertAlmostEqual(result["hours"], 12.406015, places=5)
         self.assertIsNone(result["solar"])
+        self.assertEqual(result["phase"], "charging")
+        self.assertEqual(result["source"], "grid")
+        self.assertEqual(result["eta"]["kind"], "to_full")
+        self.assertEqual(result["eta"]["label"], "22:54")
 
     def test_linear_fallback_outside_window(self):
         for hour in (6.5, 7.0, 18.0, 18.5):
@@ -72,7 +92,8 @@ class ModeTests(unittest.TestCase):
         self.assertEqual(estimate(solar_w=30)["reason"], "no_usable_solar")
         self.assertEqual(estimate(solar_w=1200, grid_export_w=60)["reason"],
                          "exporting_surplus")
-        self.assertEqual(estimate(solar_w=1200, now_hour=None)["reason"],
+        self.assertEqual(estimate(solar_w=1200, now_hour=None,
+                                  now_dt=None)["reason"],
                          "outside_solar_window")
 
 
@@ -80,7 +101,13 @@ class SolarTests(unittest.TestCase):
     def test_1200_w_is_not_enough_with_house_load(self):
         result = estimate(solar_w=1200, charge_limit_kw=6.0)
         self.assertEqual(result["mode"], "solar")
+        self.assertEqual(result["phase"], "charging")
+        self.assertEqual(result["source"], "solar")
         self.assertIsNone(result["hours"])
+        self.assertEqual(result["eta"]["kind"], "to_soc")
+        self.assertEqual(result["eta"]["soc"], 50.2)
+        self.assertEqual(result["eta"]["at"], "18:00")
+        self.assertIsNone(result["eta"]["hours"])
         self.assertEqual(result["solar_end"], "18:00")
         self.assertAlmostEqual(result["soc_final"], 50.2, places=1)
         self.assertFalse(result["solar"]["reachable"])
@@ -92,6 +119,8 @@ class SolarTests(unittest.TestCase):
         self.assertEqual(result["mode"], "solar")
         self.assertAlmostEqual(result["hours"], 4.653, places=2)
         self.assertEqual(result["clock"], "15:09")
+        self.assertEqual(result["eta"]["kind"], "to_full")
+        self.assertEqual(result["eta"]["label"], "15:09")
         self.assertFalse(result["solar"]["capped"])
         self.assertEqual(result["solar"]["charge_limit_kw"], 6.0)
         self.assertEqual(result["solar"]["charge_limit_source"], "default_6kw")
@@ -102,6 +131,7 @@ class SolarTests(unittest.TestCase):
         self.assertTrue(result["solar"]["reachable"])
         self.assertAlmostEqual(result["hours"], 5.695, places=2)
         self.assertEqual(result["clock"], "16:12")
+        self.assertEqual(result["eta"]["label"], "16:12")
         self.assertTrue(result["solar"]["capped"])
         self.assertEqual(result["solar"]["charge_limit_source"],
                          "realtime.ems_second.mcp")
@@ -130,11 +160,124 @@ class SolarTests(unittest.TestCase):
     def test_rate_is_observed_battery_rate(self):
         result = estimate(solar_w=4000, battery_avg_net_w=700)
         self.assertEqual(result["rate_kw"], 0.7)
+        self.assertEqual(result["source"], "solar")
+        self.assertEqual(result["phase"], "charging")
 
     def test_load_fallback_uses_energy_balance(self):
         result = estimate(solar_w=4000, load_avg_kw=None,
                           battery_avg_net_w=700, home_w=500)
         self.assertAlmostEqual(result["solar"]["load_kw"], 3.3, places=3)
+
+
+class SlowEtaTests(unittest.TestCase):
+    def test_thirty_hour_discharge_says_tomorrow(self):
+        result = estimate(battery_avg_net_w=-213.75)
+        self.assertAlmostEqual(result["hours"], 30.0, places=6)
+        self.assertEqual(result["clock"], "16:30")
+        self.assertEqual(result["eta"]["kind"], "to_empty")
+        self.assertEqual(result["eta"]["label"], "tomorrow 16:30")
+
+    def test_slow_discharge_uses_the_calendar_date(self):
+        result = estimate(battery_avg_net_w=-100.0)
+        self.assertAlmostEqual(result["hours"], 64.125, places=6)
+        self.assertEqual(result["clock"], "02:38")
+        self.assertEqual(result["eta"]["label"], "Sat 04 Jul 02:38")
+
+    def test_screenshot_like_thirty_seven_hours(self):
+        now = datetime(2026, 10, 30, 19, 35)
+        result = estimate(soc=93.4, battery_avg_net_w=-340,
+                          battery_net_w=270, now_hour=19 + 35 / 60,
+                          now_dt=now)
+        self.assertEqual(result["phase"], "discharging")
+        self.assertEqual(result["rate_kw"], 0.34)
+        self.assertAlmostEqual(result["hours"], 37.05, places=6)
+        self.assertEqual(result["clock"], "08:38")
+        self.assertEqual(result["eta"]["label"], "Sun 01 Nov 08:38")
+
+    def test_at_reserve_is_empty(self):
+        result = estimate(soc=5, battery_avg_net_w=-1500)
+        self.assertEqual(result["mode"], "discharging")
+        self.assertEqual(result["hours"], 0.0)
+        self.assertEqual(result["eta"]["kind"], "at_empty")
+        self.assertEqual(result["clock"], "10:30")
+
+    def test_under_twelve_hours_stays_bare_across_midnight(self):
+        result = estimate(battery_avg_net_w=-582.954545, now_hour=22.0,
+                          now_dt=datetime(2026, 7, 1, 22, 0))
+        self.assertAlmostEqual(result["hours"], 11.0, places=5)
+        self.assertEqual(result["eta"]["label"], "09:00")
+
+    def test_thirteen_hours_adds_tomorrow(self):
+        result = estimate(battery_avg_net_w=-493.269231, now_hour=22.0,
+                          now_dt=datetime(2026, 7, 1, 22, 0))
+        self.assertAlmostEqual(result["hours"], 13.0, places=5)
+        self.assertEqual(result["eta"]["label"], "tomorrow 11:00")
+
+    def test_now_hour_only_keeps_the_clock_without_a_date(self):
+        result = estimate(battery_avg_net_w=-213.75, now_dt=None)
+        self.assertEqual(result["clock"], "16:30")
+        self.assertEqual(result["eta"]["label"], "16:30")
+
+
+class SchemaTests(unittest.TestCase):
+    TOP_LEVEL = {"mode", "phase", "source", "rate_kw", "hours", "clock",
+                 "soc_final", "solar_end", "solar", "eta", "reason"}
+    ETA_KEYS = {"kind", "hours", "clock", "label", "soc", "at"}
+
+    def cases(self):
+        return [
+            ("missing", dict(nominal_kwh=None)),
+            ("idle", dict(battery_avg_net_w=-30)),
+            ("full", dict(soc=100, battery_avg_net_w=0)),
+            ("discharging", dict(battery_avg_net_w=-1500)),
+            ("empty", dict(soc=5, battery_avg_net_w=-1500)),
+            ("grid", dict(grid_import_w=60)),
+            ("outside", dict(solar_w=1200, now_hour=6.5)),
+            ("no_solar", dict(solar_w=30)),
+            ("export", dict(solar_w=1200, grid_export_w=60)),
+            ("solar_reachable", dict(solar_w=4000)),
+            ("solar_partial", dict(solar_w=1200)),
+        ]
+
+    def test_every_branch_has_the_same_schema(self):
+        for name, kwargs in self.cases():
+            result = estimate(**kwargs)
+            self.assertEqual(set(result), self.TOP_LEVEL, name)
+            self.assertEqual(set(result["eta"]), self.ETA_KEYS, name)
+            self.assertIn(result["eta"]["kind"], ETA_KINDS, name)
+            self.assertIn(result["phase"], PHASES, name)
+            self.assertIn(result["source"], SOURCES, name)
+            self.assertEqual(result["eta"]["clock"], result["clock"], name)
+            self.assertEqual(result["eta"]["hours"], result["hours"], name)
+
+    def test_every_eta_kind_matches_its_time_fields(self):
+        for name, kwargs in self.cases():
+            eta = estimate(**kwargs)["eta"]
+            kind = eta["kind"]
+            if kind in ("to_empty", "to_full"):
+                self.assertIsNotNone(eta["hours"], name)
+                self.assertIsNotNone(eta["clock"], name)
+                self.assertIsNotNone(eta["label"], name)
+            elif kind == "to_soc":
+                self.assertIsNone(eta["hours"], name)
+                self.assertIsNotNone(eta["soc"], name)
+                self.assertIsNotNone(eta["at"], name)
+            elif kind in ("at_full", "at_empty"):
+                self.assertEqual(eta["hours"], 0.0, name)
+            else:
+                self.assertIsNone(eta["hours"], name)
+
+    def test_source_describes_the_charging_path(self):
+        self.assertEqual(estimate(battery_avg_net_w=-1500)["source"],
+                         "battery")
+        self.assertEqual(estimate(grid_import_w=60)["source"], "grid")
+        self.assertEqual(estimate(solar_w=4000)["source"], "solar")
+        self.assertEqual(estimate(solar_w=1200, now_hour=6.5)["source"],
+                         "solar")
+        self.assertEqual(estimate(solar_w=30)["source"], "none")
+        self.assertEqual(estimate(solar_w=1200, grid_export_w=60)["source"],
+                         "solar")
+        self.assertEqual(estimate(battery_avg_net_w=-30)["source"], "none")
 
 
 if __name__ == "__main__":

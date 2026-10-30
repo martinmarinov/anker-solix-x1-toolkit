@@ -200,7 +200,7 @@ class StaticRuntimeTests(unittest.TestCase):
     def test_battery_readout_stays_dark_over_fill_and_headroom(self):
         css = (STATIC / "css/home.css").read_text(encoding="utf-8")
         for selector in (".battery-soc", ".battery-power",
-                         ".battery-caption-label", ".battery-caption-value"):
+                         ".battery-caption-value"):
             rule = re.search(re.escape(selector) + r" \{(.*?)\}", css, re.S)
             self.assertIsNotNone(rule, selector)
             self.assertIn("color: var(--ink)", rule.group(1), selector)
@@ -208,6 +208,15 @@ class StaticRuntimeTests(unittest.TestCase):
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
         self.assertIn("--battery-ink-rgb", js)
         self.assertIn("batteryTone", js)
+
+    def test_battery_caption_has_no_redundant_label(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertNotIn("battery-caption-label", html)
+        self.assertNotIn(">Battery</span>", html)
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        self.assertNotIn(".battery-caption-label", css)
+        # The shell still names the region for assistive technology.
+        self.assertIn('aria-label="Battery state"', html)
 
     def test_card_accent_matches_the_active_meter_fill(self):
         css = (STATIC / "css/home.css").read_text(encoding="utf-8")
@@ -469,16 +478,28 @@ class StaticRuntimeTests(unittest.TestCase):
         self.assertIn("batt.hours_to_empty", js)
         self.assertIn("batt.hours_to_full", js)
 
-    def test_battery_eta_renders_the_mode_estimate(self):
+    def test_battery_eta_renders_the_server_labelled_estimate(self):
         js = (STATIC / "home-view.js").read_text(encoding="utf-8")
         self.assertIn("batt.estimate", js)
         self.assertIn("root.dataset.estimate", js)
-        for fragment in ("est.mode === \"full\"", 'est.mode === "solar"',
-                         "est.soc_final", "est.solar_end", "est.clock",
-                         '"% by "', "charge_limit_kw"):
+        self.assertIn("function batteryReadout", js)
+        for fragment in ("eta.kind", "eta.label", '"to_empty"', '"to_full"',
+                         '"to_soc"', '"at_full"', '"at_empty"',
+                         "eta.soc", "eta.at", '"% by "', "charge_limit_kw"):
             self.assertIn(fragment, js)
         self.assertIn("batt.hours_to_empty", js)
         self.assertIn("batt.hours_to_full", js)
+        # The calendar rule lives on the server; there is no second formatter
+        # and no forced third line between the duration and the clock.
+        self.assertNotIn("clockAfter", js)
+        self.assertNotIn("toLocaleDateString", js)
+        readout = js.split("function batteryReadout", 1)[1].split(
+            "/* Battery time", 1)[0]
+        self.assertNotIn("\\n", readout)
+        self.assertNotIn('est.mode === "full"', js)
+        self.assertNotIn('est.mode === "solar"', js)
+        self.assertIn("root.dataset.battery = (view.battery && view.battery.state)",
+                      js)
 
     def test_drawer_about_describes_the_read_only_wake(self):
         html = INDEX.read_text(encoding="utf-8")

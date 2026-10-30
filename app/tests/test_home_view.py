@@ -162,6 +162,12 @@ class HomeViewTests(unittest.TestCase):
         })
         self.assertEqual(view["battery"]["hours_to_empty"], 6.41)
         self.assertIsNone(view["battery"]["hours_to_full"])
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["phase"], "discharging")
+        self.assertEqual(estimate["source"], "battery")
+        self.assertEqual(estimate["eta"]["kind"], "to_empty")
+        self.assertNotIn("phase", view["battery"])
+        self.assertNotIn("source", view["battery"])
 
     def test_charging_eta_uses_server_average(self):
         view = build_home_view({
@@ -171,6 +177,10 @@ class HomeViewTests(unittest.TestCase):
         })
         self.assertEqual(view["battery"]["hours_to_full"], 8.68)
         self.assertIsNone(view["battery"]["hours_to_empty"])
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["phase"], "charging")
+        self.assertEqual(estimate["source"], "none")
+        self.assertEqual(estimate["eta"]["kind"], "to_full")
 
     def test_numeric_zero_is_live_idle(self):
         view = build_home_view({"available": True, "pp": 0, "gp": 0,
@@ -219,6 +229,8 @@ class HomeViewTests(unittest.TestCase):
         self.assertEqual(estimate["mode"], "solar")
         self.assertAlmostEqual(estimate["hours"], 4.653, places=2)
         self.assertEqual(estimate["clock"], "15:09")
+        self.assertEqual(estimate["eta"]["kind"], "to_full")
+        self.assertEqual(estimate["eta"]["label"], "15:09")
         self.assertEqual(view["battery"]["hours_to_full"], 4.65)
         self.assertIsNone(view["battery"]["hours_to_empty"])
         self.assertEqual(estimate["solar"]["as_of"], "10:30")
@@ -243,6 +255,9 @@ class HomeViewTests(unittest.TestCase):
         self.assertEqual(estimate["solar_end"], "18:00")
         self.assertAlmostEqual(estimate["soc_final"], 50.2, places=1)
         self.assertTrue(estimate["solar"]["reachable"] is False)
+        self.assertEqual(estimate["eta"]["kind"], "to_soc")
+        self.assertEqual(estimate["eta"]["soc"], 50.2)
+        self.assertEqual(estimate["eta"]["at"], "18:00")
 
     def test_idle_below_50_w_has_no_eta(self):
         ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
@@ -252,6 +267,8 @@ class HomeViewTests(unittest.TestCase):
         estimate = view["battery"]["estimate"]
         self.assertEqual(estimate["mode"], "idle")
         self.assertIsNone(estimate["hours"])
+        self.assertEqual(estimate["eta"]["kind"], "none")
+        self.assertEqual(estimate["eta"]["label"], None)
         self.assertIsNone(view["battery"]["hours_to_empty"])
         self.assertIsNone(view["battery"]["hours_to_full"])
 
@@ -274,6 +291,56 @@ class HomeViewTests(unittest.TestCase):
         estimate = view["battery"]["estimate"]
         self.assertEqual(estimate["mode"], "discharging")
         self.assertEqual(estimate["clock"], "14:46")
+        self.assertEqual(estimate["eta"]["label"], "14:46")
+
+    def test_instantaneous_card_power_uses_the_averaged_eta(self):
+        view = build_home_view({
+            "available": True, "soc": 50, "pp": 0, "gp": 0, "lp": 0,
+            "bp": -3000, "batt_avg_net_kw": -0.3,
+            "nominal_capacity_kwh": 15, "reserve_soc": 5,
+        })
+        self.assertEqual(view["battery"]["state"], "charging")
+        self.assertEqual(view["battery"]["w"], 3000)
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["phase"], "discharging")
+        self.assertEqual(estimate["source"], "battery")
+        self.assertAlmostEqual(estimate["rate_kw"], 0.3)
+        self.assertAlmostEqual(estimate["hours"], 21.375)
+
+    def test_slow_eta_carries_the_calendar_date(self):
+        ts = datetime(2026, 10, 30, 19, 35, tzinfo=timezone.utc).timestamp()
+        view = build_home_view({
+            "available": True, "ts": ts, "soc": 93.4,
+            "pp": 0, "gp": 0, "bp": 270, "lp": 0,
+            "nominal_capacity_kwh": 15, "reserve_soc": 5,
+            "batt_avg_net_kw": -0.34, "load_avg_kw": 0.0,
+        }, tz="Europe/London")
+        battery = view["battery"]
+        self.assertEqual(battery["available_kwh"], 13.26)
+        self.assertEqual(battery["w"], 270)
+        estimate = battery["estimate"]
+        self.assertAlmostEqual(estimate["hours"], 37.05, places=2)
+        self.assertEqual(estimate["clock"], "08:38")
+        self.assertEqual(estimate["eta"]["kind"], "to_empty")
+        self.assertEqual(estimate["eta"]["label"], "Sun 01 Nov 08:38")
+        self.assertEqual(estimate["eta"]["hours"], estimate["hours"])
+
+    def test_at_reserve_and_at_full_aliases(self):
+        empty = build_home_view({
+            "available": True, "soc": 5, "pp": 0, "gp": 0, "lp": 0,
+            "bp": 1500, "nominal_capacity_kwh": 15, "reserve_soc": 5,
+        })
+        self.assertEqual(empty["battery"]["hours_to_empty"], 0.0)
+        self.assertIsNone(empty["battery"]["hours_to_full"])
+        self.assertEqual(empty["battery"]["estimate"]["eta"]["kind"],
+                         "at_empty")
+        full = build_home_view({
+            "available": True, "soc": 100, "pp": 0, "gp": 0, "lp": 0,
+            "bp": 0, "nominal_capacity_kwh": 15, "reserve_soc": 5,
+        })
+        self.assertEqual(full["battery"]["hours_to_full"], 0.0)
+        self.assertIsNone(full["battery"]["hours_to_empty"])
+        self.assertEqual(full["battery"]["estimate"]["eta"]["kind"], "at_full")
 
 
 if __name__ == "__main__":

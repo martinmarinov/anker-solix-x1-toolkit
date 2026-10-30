@@ -279,17 +279,36 @@ a window is active is stored as pending and applied at the next window boundary.
 ### Live view: battery estimate
 
 `/api/live` returns `view.battery.estimate` alongside the existing battery fields. `mode` is
-one of `unavailable`, `idle`, `discharging`, `grid`, `charging`, `solar` or `full`.
+one of `unavailable`, `idle`, `discharging`, `grid`, `charging`, `solar` or `full`; it is the
+legacy formula name. `phase` is the averaged state (`unavailable`, `idle`, `full`,
+`discharging` or `charging`) and `source` is `none`, `battery`, `solar`, `grid`, `mixed` or
+`unknown`.
+
+Only this estimate uses the ten-minute average for a displayed time;
+`batt_avg_net_kw`, `batt_avg_kw` and `load_avg_kw` are averaged diagnostics, not card
+power. `view.battery.w`, `state`, `label`, `soc`, `available_kwh`, every flow and the
+`solar`/`grid`/`home` cards stay on instantaneous telemetry, so the battery shimmer can
+disagree with the averaged ETA by design.
 
 ```json
 {
   "mode": "solar",
+  "phase": "charging",
+  "source": "solar",
   "rate_kw": 0.7,
   "hours": 4.653,
   "clock": "15:09",
   "soc_final": null,
   "solar_end": null,
   "reason": "solar_curve",
+  "eta": {
+    "kind": "to_full",
+    "hours": 4.653,
+    "clock": "15:09",
+    "label": "15:09",
+    "soc": null,
+    "at": null
+  },
   "solar": {
     "as_of": "10:30",
     "remaining_kwh": 12.82,
@@ -306,17 +325,47 @@ one of `unavailable`, `idle`, `discharging`, `grid`, `charging`, `solar` or `ful
 }
 ```
 
-- `hours` is absent (`null`) in `solar` when the pack cannot reach 100 % by 18:00; `soc_final`
-  and `solar_end` are then set, and the browser shows `87% by 18:00`.
-- `clock` is computed in the site timezone. The browser keeps its local fallback for old
-  payloads.
+A slow discharge from 10:30 shows the calendar hint on `eta.label`, while `clock` stays the
+actual target time-of-day:
+
+```json
+{
+  "mode": "discharging",
+  "phase": "discharging",
+  "source": "battery",
+  "rate_kw": 0.214,
+  "hours": 30.0,
+  "clock": "16:30",
+  "eta": {
+    "kind": "to_empty",
+    "hours": 30.0,
+    "clock": "16:30",
+    "label": "tomorrow 16:30",
+    "soc": null,
+    "at": null
+  }
+}
+```
+
+- `eta.kind` is the closed set `none | at_full | at_empty | to_full | to_empty | to_soc`.
+  The browser switches on it: `to_empty`/`to_full` render the duration plus `eta.label`,
+  `to_soc` renders `{eta.soc}% by {eta.at}`, and `at_full`/`at_empty` render `Full`/`Empty`.
+- `clock` is the actual target time-of-day in the site timezone, not modulo 24 h.
+  `eta.label` is the server-owned display string: under 12 h it is just `HH:MM` even when the
+  target crosses midnight; 12 h or more over the next calendar day adds `tomorrow`; two or
+  more days out uses e.g. `Sat 04 Jul 02:38`, with the year when it differs from now.
+- `eta.hours` mirrors `hours` after the view rounds it to three decimals. For `to_soc`,
+  `hours` is `null` and `eta.soc`/`eta.at` carry the expected SOC at 18:00 instead.
+  The legacy top-level `soc_final` and `solar_end` remain set for that case and mirror
+  `eta.soc`/`eta.at`.
+- The `hours_to_empty` and `hours_to_full` aliases are derived from `eta.kind`, so a new
+  estimate branch does not need another mode list.
 - `charge_limit_kw` is resolved at runtime: realtime EMS (`realtime.ems_second.<key>`) →
   device attributes or the site power limit (`device_attrs.<key>`, `power_limits.<key>`) → `default_6kw`. `plan-save` is a temporary
   source set immediately after a successful schedule save; the next frame or read replaces it.
   `capped` is true only when the limit actually clips the solar surplus.
 - `batt_avg_net_kw` (signed), `load_avg_kw` and the legacy `batt_avg_kw` are in the live
   snapshot. The averages cover ten minutes and are time-weighted.
-- `hours_to_empty` and `hours_to_full` remain as aliases for older clients.
 
 See [`SOLAR-ESTIMATE.md`](SOLAR-ESTIMATE.md) for the mode table and formulas.
 

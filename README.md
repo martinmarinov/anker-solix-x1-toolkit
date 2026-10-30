@@ -28,7 +28,9 @@ follow the active meter band; values, units and icons stay page ink.</em></p>
   instantaneous PV and grid readings choose the formula. Discharge and grid charging stay
   linear. Solar charging between 07:00 and 18:00 uses a single-reading solar curve, subtracts
   the house load and clips at the runtime inverter cap. When the sun cannot fill the pack, the
-  dashboard shows the expected SOC at 18:00 instead of a false finish time. See
+  dashboard shows the expected SOC at 18:00 instead of a false finish time. Estimates over
+  12 hours carry the target’s calendar hint (`tomorrow 16:30`, `Sat 04 Jul 02:38`); shorter
+  ones print only the time. See
   [`docs/SOLAR-ESTIMATE.md`](docs/SOLAR-ESTIMATE.md).
 - **Day / night backdrop.** Between **19:00 and 20:00** the scene crossfades from the daylight
   house to a moonlit copy with lit windows and stars, and between **06:00 and 07:00** it fades

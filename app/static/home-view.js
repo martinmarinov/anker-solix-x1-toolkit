@@ -122,11 +122,39 @@
     return m ? h + "h " + m + "m" : h + "h";
   }
 
-  function clockAfter(hours) {
-    var d = new Date(Date.now() + Math.max(0, Number(hours)) * 3600000);
-    return d.toLocaleTimeString([], {
-      hour: "2-digit", minute: "2-digit", hour12: false
-    });
+  /* The server owns the calendar rule: eta.label is "15:09",
+     "tomorrow 16:30" or "Sat 04 Jul 02:38". The browser only joins it to
+     the averaged duration, so there is no second day-aware formatter here. */
+  function batteryReadout(est, batt) {
+    var eta = est && est.eta;
+    if (eta && eta.kind) {
+      if (eta.kind === "at_full") return "Full";
+      if (eta.kind === "at_empty") return "Empty";
+      if (eta.kind === "to_soc") {
+        if (!isNum(eta.soc)) return "";
+        return Math.round(Number(eta.soc)) + "% by " + (eta.at || "18:00");
+      }
+      if (eta.kind === "to_empty" || eta.kind === "to_full") {
+        if (!isNum(eta.hours)) return "";
+        var head = "~" + fmtDuration(eta.hours) + " · " +
+                   (eta.kind === "to_empty" ? "empty" : "full");
+        var when = eta.label || eta.clock || "";
+        return when ? head + " " + when : head;
+      }
+      return "";
+    }
+    // Old server or the first frame: use the legacy aliases without inventing
+    // a local clock. Server clock/label fields remain authoritative.
+    var legacyWhen = (est && est.clock) || "";
+    if (batt && batt.state === "discharging" && isNum(batt.hours_to_empty)) {
+      return "~" + fmtDuration(batt.hours_to_empty) + " · empty" +
+             (legacyWhen ? " " + legacyWhen : "");
+    }
+    if (batt && batt.state === "charging" && isNum(batt.hours_to_full)) {
+      return "~" + fmtDuration(batt.hours_to_full) + " · full" +
+             (legacyWhen ? " " + legacyWhen : "");
+    }
+    return "";
   }
 
   /* Battery time-to-empty/full is computed on the server from a ten-minute,
@@ -404,28 +432,7 @@
       ? batt.estimate : null;
     root.dataset.estimate = (est && est.mode) || "unavailable";
 
-    // Old servers (and the first frames of a fresh feed) may not have an
-    // estimate object. Keep the original batt.state + hours_to_* fallback.
-    var etaHours = null;
-    var etaLabel = "";
-    if (est) {
-      if (est.mode === "discharging" && isNum(est.hours)) {
-        etaHours = Number(est.hours);
-        etaLabel = "empty";
-      } else if ((est.mode === "grid" || est.mode === "charging" ||
-                  est.mode === "solar") && isNum(est.hours)) {
-        etaHours = Number(est.hours);
-        etaLabel = "full";
-      }
-    } else if (batt.state === "discharging" &&
-               isNum(batt.hours_to_empty)) {
-      etaHours = Number(batt.hours_to_empty);
-      etaLabel = "empty";
-    } else if (batt.state === "charging" &&
-               isNum(batt.hours_to_full)) {
-      etaHours = Number(batt.hours_to_full);
-      etaLabel = "full";
-    }
+    var readout = batteryReadout(est, batt);
 
     var capNote = "";
     if (est && est.solar && est.solar.capped &&
@@ -448,17 +455,7 @@
         els.batterySummary.textContent = "—";
       } else {
         var lines = [fmtKwh(batt.available_kwh)];
-        if (est && est.mode === "full") {
-          lines.push("Full");
-        } else if (est && est.mode === "solar" && etaHours === null &&
-                   isNum(est.soc_final)) {
-          lines.push(Math.round(Number(est.soc_final)) + "% by " +
-                     (est.solar_end || "18:00"));
-        } else if (etaHours !== null && isFinite(etaHours)) {
-          lines.push("~" + fmtDuration(etaHours) +
-                     " · " + etaLabel + " " +
-                     ((est && est.clock) || clockAfter(etaHours)));
-        }
+        if (readout) lines.push(readout);
         els.batterySummary.textContent = lines.join("\n");
       }
       if (capNote) els.batterySummary.title = capNote;

@@ -498,13 +498,6 @@
   white-space: normal;
 }
 
-.battery-caption-label {
-  color: var(--ink);
-  font-size: calc(clamp(12px, calc(var(--u) * 2.35), 30px) * var(--type-scale));
-  font-weight: 600;
-  line-height: 1.1;
-}
-
 .battery-caption-value {
   color: var(--ink);
   font-size: calc(clamp(12px, calc(var(--u) * 2.35), 32px) * var(--type-scale));

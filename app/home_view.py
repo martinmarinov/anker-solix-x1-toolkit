@@ -8,13 +8,16 @@ has no Anker dependency, which keeps it easy to unit-test.
 
 The battery ETA is delegated to :mod:`battery_estimate`, which uses the
 ten-minute signed average for the state and the instantaneous solar/grid
-readings for the solar-curve branch.
+readings for the solar-curve branch.  Everything the cards display (battery
+watts/state, flows, solar/grid/home and the shimmer) stays on instantaneous
+telemetry; only ``battery.estimate``, its ``hours_to_*`` aliases and the
+``batt_avg_*``/``load_avg_kw`` diagnostics use the average, and those
+diagnostics are never rendered as card power.
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from battery_estimate import estimate_battery
+from eta import local_datetime, local_hour
 from power_flow import (
     ACTIVE_W,
     battery_charge_w,
@@ -32,11 +35,6 @@ from power_flow import (
     solar_w,
     watts,
 )
-
-try:  # Python 3.9+; the Docker image may not ship a full tz database.
-    from zoneinfo import ZoneInfo
-except ImportError:  # pragma: no cover - only on very old Python
-    ZoneInfo = None
 
 
 def _power(value) -> dict:
@@ -67,50 +65,36 @@ def _age_label(age_s):
     return f"{minutes}m {seconds}s" if seconds else f"{minutes}m"
 
 
-def _local_hour(now, tz: str) -> float | None:
-    """Decimal local hour from an epoch timestamp in the site timezone."""
-    try:
-        ts = float(now)
-    except (TypeError, ValueError):
-        return None
-    if ts != ts or ts in (float("inf"), float("-inf")):
-        return None
-    dt = None
-    if tz and ZoneInfo is not None:
-        try:
-            dt = datetime.fromtimestamp(ts, ZoneInfo(tz))
-        except Exception:
-            dt = None
-    if dt is None:
-        try:
-            dt = datetime.fromtimestamp(ts)
-        except Exception:
-            return None
-    return dt.hour + dt.minute / 60.0 + dt.second / 3600.0
-
-
 def _empty_estimate() -> dict:
     return {
         "mode": "unavailable",
+        "phase": "unavailable",
+        "source": "none",
         "rate_kw": None,
         "hours": None,
         "clock": None,
         "soc_final": None,
         "solar_end": None,
         "solar": None,
+        "eta": {"kind": "none", "hours": None, "clock": None, "label": None,
+                "soc": None, "at": None},
         "reason": "unavailable",
     }
 
 
 def _legacy_hours(estimate: dict) -> tuple[float | None, float | None]:
+    """Old-client aliases, derived from ``eta.kind`` rather than a mode list."""
+    eta = estimate.get("eta") or {}
+    kind = eta.get("kind")
     hours = estimate.get("hours")
-    if hours is None:
-        return None, None
-    mode = estimate.get("mode")
-    if mode == "discharging":
+    if kind == "to_empty" and hours is not None:
         return round(hours, 2), None
-    if mode in ("grid", "charging", "solar", "full"):
+    if kind == "at_empty":
+        return 0.0, None
+    if kind == "to_full" and hours is not None:
         return None, round(hours, 2)
+    if kind == "at_full":
+        return None, 0.0
     return None, None
 
 
@@ -215,7 +199,8 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
         usable_soc = max(0.0, min(100.0, soc_raw) - reserve)
         available_kwh = max(0.0, nominal * usable_soc / 100.0)
 
-    local_hour = _local_hour(now if now is not None else snap.get("ts"), tz)
+    local_dt = local_datetime(now if now is not None else snap.get("ts"), tz)
+    local_hour_value = local_hour(local_dt)
     estimate = estimate_battery(
         soc=soc_raw,
         nominal_kwh=nominal,
@@ -228,14 +213,18 @@ def build_home_view(snapshot: dict | None, now=None, tz: str = "") -> dict:
         grid_export_w=grid_out,
         home_w=load_w,
         load_avg_kw=load_avg_kw,
-        now_hour=local_hour,
+        now_hour=local_hour_value,
+        now_dt=local_dt,
         charge_limit_kw=charge_limit_kw,
         charge_limit_source=charge_limit_source,
     )
     hours_to_empty, hours_to_full = _legacy_hours(estimate)
+    estimate = dict(estimate)
     if estimate.get("hours") is not None:
-        estimate = dict(estimate)
         estimate["hours"] = round(estimate["hours"], 3)
+    eta = dict(estimate.get("eta") or {})
+    eta["hours"] = estimate.get("hours")
+    estimate["eta"] = eta
 
     if available_kwh is not None:
         available_kwh = round(available_kwh, 2)

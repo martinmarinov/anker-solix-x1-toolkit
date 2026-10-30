@@ -32,8 +32,11 @@ idle so inverter noise does not produce a multi-day ETA. Grid input above 50 W w
 solar, because the battery may be charging from the grid even when PV is present. Outside
 07:00–18:00 the curve is not defined, so charging is linear again.
 
-Only the estimate uses the 50 W idle gate. The battery card still follows the instantaneous
-flow, so it can read “Discharging” while the ETA is hidden.
+Only the estimate uses the 50 W idle gate and the ten-minute average for a displayed time.
+`batt_avg_*` and `load_avg_kw` are averaged diagnostics, never card power. The battery card’s
+watts, state, label and SOC, every flow, and the solar/grid/home cards still follow
+instantaneous telemetry, so the card can read “Discharging” while the ETA is hidden or while
+the averaged estimate says it is charging.
 
 ## The solar curve
 
@@ -148,16 +151,27 @@ the user asked not to change those formulas.
 
 ## View and API fields
 
-`view.battery.estimate` is present on every available snapshot:
+`view.battery.estimate` is present on every available snapshot. `mode` is the legacy formula
+name; `phase` and `source` describe the averaged estimate that produced the time:
 
 ```json
 {
   "mode": "solar",
+  "phase": "charging",
+  "source": "solar",
   "rate_kw": 0.7,
   "hours": 4.653,
   "clock": "15:09",
   "soc_final": null,
   "solar_end": null,
+  "eta": {
+    "kind": "to_full",
+    "hours": 4.653,
+    "clock": "15:09",
+    "label": "15:09",
+    "soc": null,
+    "at": null
+  },
   "solar": {
     "as_of": "10:30",
     "remaining_kwh": 12.82,
@@ -175,9 +189,32 @@ the user asked not to change those formulas.
 }
 ```
 
-`hours_to_empty` and `hours_to_full` remain as aliases for older clients. The browser prefers
-`estimate.clock` over its own local-time formatting, so the finish time follows the site
-timezone. `data-estimate` on the Home stage carries the mode for styling.
+`eta.kind` is the closed set `none | at_full | at_empty | to_full | to_empty | to_soc`.
+`to_empty`/`to_full` render the duration plus `eta.label`; `to_soc` renders
+`{eta.soc}% by {eta.at}`; `at_full`/`at_empty` render `Full`/`Empty`. For `to_soc`, the
+legacy top-level `soc_final` and `solar_end` remain set and mirror `eta.soc`/`eta.at`.
+
+`clock` is the actual target time-of-day in the site timezone, not a modulo. `eta.label` adds
+the calendar hint and is formatted only on the server:
+
+| Now | Remaining | Target | `eta.label` |
+|---|---|---|---|
+| 23:00 | 8 h | 07:00 next day | `07:00` |
+| 23:00 | 13 h | 12:00 next day | `tomorrow 12:00` |
+| 10:30 | 30 h | 16:30 next day | `tomorrow 16:30` |
+| 19:35 | 37.05 h | 08:38 two days out | `Sun 01 Nov 08:38` |
+| 23:00 | 25 h | 00:00 two days out | `Fri 03 Jul 00:00` |
+| 10:30 | 64.125 h | 02:38 three days out | `Sat 04 Jul 02:38` |
+
+The rule is calendar-based, not a 24–48 h bucket: under 12 h the time is printed bare even
+when it crosses midnight; 12 h or more over the next day adds `tomorrow`; two or more days
+out uses the weekday and date, plus the year when it differs from now. Aware datetimes are
+advanced by absolute seconds, so DST transitions keep the correct wall time. The 12 h cutoff
+is `ETA_SHORT_HOURS` in `app/eta.py`.
+
+`hours_to_empty` and `hours_to_full` remain as aliases for older clients and are derived from
+`eta.kind`. The browser has one display switch on `eta.kind`; it does not format a day or a
+clock itself. `data-estimate` on the Home stage still carries the legacy mode for styling.
 
 ## Worked checks
 

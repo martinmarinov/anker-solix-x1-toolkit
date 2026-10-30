@@ -128,7 +128,35 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(estimate["mode"], "solar")
         self.assertAlmostEqual(estimate["hours"], 4.653, places=2)
         self.assertEqual(estimate["clock"], "15:09")
+        self.assertEqual(estimate["eta"]["kind"], "to_full")
+        self.assertEqual(estimate["eta"]["label"], "15:09")
         self.assertFalse(estimate["solar"]["capped"])
+
+    def test_live_exposes_a_slow_eta_with_a_day_hint(self):
+        ts = datetime(2026, 7, 1, 9, 30, tzinfo=timezone.utc).timestamp()
+        original = self.feed.get
+        self.feed.get = lambda: {
+            "available": True, "ts": int(ts), "age_s": 4, "stale": False,
+            "waking": False, "pp": 0, "gp": 0, "bp": 213.75, "lp": 0,
+            "soc": 50, "interval_s": 5, "count": 60, "stale_after_s": 30,
+            "nominal_capacity_kwh": 15.0, "reserve_soc": 5.0,
+            "batt_avg_net_kw": -0.21375, "load_avg_kw": 0.0,
+            "charge_limit_kw": 6.0, "charge_limit_source": "default_6kw",
+        }
+        try:
+            status, payload, _ = self.request(
+                "GET", f"/api/live?site={SITE['id']}&sn={SN}")
+        finally:
+            self.feed.get = original
+        self.assertEqual(status, 200)
+        view = json.loads(payload)["view"]
+        estimate = view["battery"]["estimate"]
+        self.assertEqual(estimate["mode"], "discharging")
+        self.assertAlmostEqual(estimate["hours"], 30.0, places=2)
+        self.assertEqual(estimate["clock"], "16:30")
+        self.assertEqual(estimate["eta"]["kind"], "to_empty")
+        self.assertEqual(estimate["eta"]["label"], "tomorrow 16:30")
+        self.assertEqual(view["battery"]["hours_to_empty"], 30.0)
 
     def test_interval_post_reports_pending_and_sets_cookie(self):
         self.feed.calls.clear()
