@@ -84,15 +84,24 @@ capacity, never offered as a plan target.
   windows, trees, lawn, ground). Icons are inline SVG; the sky, sun and hills are inline
   SVG/CSS. No external images, fonts, CDNs or runtime AI calls; the UI uses the browser's
   system sans, which resolves to Roboto in the Skylight WebView.
+- **Cloudy sky, CSS only.** A shared vector cloud library feeds two parallax banks. Each bank
+  is one 1600-unit viewBox wide, repeated once, and its track moves exactly one viewBox per
+  cycle, so the loop seam sits outside the artwork. Far clouds are smaller, fainter and slower
+  (300 s) than the near bank (180 s). Both scene layers reference the same bank ids, which
+  keeps the day and night clouds pixel-aligned during the crossfade; the day fill is paper
+  white and the night fill reuses the existing slate `#3e536b`. The field sits above the sky
+  and below the house and cards, so it never covers data. `prefers-reduced-motion` freezes the
+  tracks while keeping the composition.
 - **Night scenery without a second theme.** `house-night.svg` is a colour-only copy of the day
   house: same viewBox, paths, positions, opacities and gradients. The night sky reuses the
-  day cloud and hill paths and swaps the sun glow for a cool moon glow; only the stars are new
-  geometry. Both scenes are stacked, pixel-aligned layers. For one hour after sunset the clock
-  crossfades day→night, and for one hour before sunrise it crossfades night→day, using the same
-  once-a-second clock as the drawer (two opacity writes per minute, no extra timer, no CSS
-  animation). Both edges come from `view.daylight`; with the fallback 07:00–18:00 window that
-  is **19:00–20:00** and **06:00–07:00**. Outside those windows the scene is fully day or fully
-  night; `data-sky` is `day`, `dusk` or `night`.
+  day cloud library and hill paths and swaps the sun glow for a cool moon glow; only the stars
+  are new geometry. Both scenes are stacked, pixel-aligned layers. For one hour after sunset
+  the clock crossfades day→night, and for one hour before sunrise it crossfades night→day,
+  using the same once-a-second clock as the drawer (two opacity writes per minute, no extra
+  timer; the cloud
+  drift is the only CSS scenery animation). Both edges come from `view.daylight`; with the
+  fallback 07:00–18:00 window that is **19:00–20:00** and **06:00–07:00**. Outside those
+  windows the scene is fully day or fully night; `data-sky` is `day`, `dusk` or `night`.
   The crossfade follows the site timezone, and the night palette is a moonlit sage/blue set
   rather than a dark/black screen: the hills behind the battery caption stay above 4.5:1
   against the page ink, so the card, battery and text colours do not change. The night house
@@ -106,9 +115,10 @@ capacity, never offered as a plan target.
   then red at 5% (smoothstep between stops). Each tone pairs a bright fill with a dark ink
   for the shell outline; the SOC, power and remaining-charge text all use the page ink, so
   they remain legible on the pale headroom and on the fill at every charge level. The battery shimmer uses
-  `data-battery`: it travels down while discharging and up while charging. That is the only
-  looping motion; fill-height, colours and flow-opacity changes are short transitions. It
-  stops when idle/unavailable and is disabled by `prefers-reduced-motion`.
+  `data-battery`: it travels down while discharging and up while charging. It is the only
+  looping data-state element; fill-height, colours and flow-opacity changes are short
+  transitions. The scenery's cloud drift is the only other continuous animation. The shimmer
+  stops when idle/unavailable; both respect `prefers-reduced-motion`.
 - **Battery ETA is source-aware.** The signed ten-minute battery average decides
   idle/charge/discharge; the ten-minute averaged PV (instant fallback while the mean is
   missing) and the instantaneous grid readings decide which formula to use. Discharge and
@@ -384,5 +394,6 @@ headers or tokens.
 - **Live data is per-account**; a site with no inverter exposes no feed. The site timezone
   is used when the account exposes one; otherwise the clock follows the browser.
 - **No looping flow/icon animations in this milestone.** The battery shimmer is the only
-  looping element; state attributes and icon part classes are ready for a CSS-only M2.
-  `prefers-reduced-motion` disables the flow/fill transitions and the shimmer.
+  looping data-state element; state attributes and icon part classes are ready for a CSS-only
+  M2. The sky's cloud drift is scenery, not state. `prefers-reduced-motion` disables the
+  flow/fill transitions, the shimmer and the cloud drift.

@@ -69,8 +69,65 @@
         data-home="unavailable">
 
     <div class="scene" aria-hidden="true">
-      <!-- Two pixel-aligned scene layers. Their shared clouds, hills and house
-           must keep identical geometry; keep every inline gradient id unique. -->
+      <svg class="cloud-library" width="1" height="1" aria-hidden="true" focusable="false">
+        <defs>
+          <!-- One cloud vocabulary for both sky layers: overlapping ellipses
+               and a rounded base merge into a flat, paper-cut cloud. -->
+          <g id="cloudPuffA">
+            <ellipse cx="42" cy="64" rx="42" ry="27"/>
+            <ellipse cx="96" cy="48" rx="54" ry="38"/>
+            <ellipse cx="158" cy="62" rx="46" ry="29"/>
+            <rect x="18" y="64" width="170" height="27" rx="13.5"/>
+          </g>
+          <g id="cloudPuffB">
+            <ellipse cx="34" cy="36" rx="32" ry="21"/>
+            <ellipse cx="82" cy="25" rx="40" ry="27"/>
+            <ellipse cx="126" cy="38" rx="30" ry="20"/>
+            <rect x="12" y="37" width="128" height="21" rx="10.5"/>
+          </g>
+          <g id="cloudPuffC">
+            <ellipse cx="52" cy="30" rx="50" ry="18"/>
+            <ellipse cx="140" cy="24" rx="58" ry="20"/>
+            <ellipse cx="226" cy="30" rx="46" ry="17"/>
+            <rect x="10" y="29" width="250" height="19" rx="9.5"/>
+          </g>
+          <g id="cloudPuffD">
+            <ellipse cx="26" cy="22" rx="24" ry="13"/>
+            <ellipse cx="64" cy="16" rx="32" ry="15"/>
+            <ellipse cx="100" cy="23" rx="22" ry="12"/>
+          </g>
+
+          <!-- Both banks keep every shape inside 0..1600. The track repeats
+               each bank once at x=1600 and moves exactly one viewBox, so the
+               loop seam lands outside the artwork. -->
+          <g id="cloudBankFar">
+            <use href="#cloudPuffB" transform="translate(40 170) scale(0.6)" opacity="0.34"/>
+            <use href="#cloudPuffD" transform="translate(220 205) scale(1.1)" opacity="0.3"/>
+            <use href="#cloudPuffB" transform="translate(390 165) scale(0.5)" opacity="0.36"/>
+            <use href="#cloudPuffD" transform="translate(520 225) scale(0.95)" opacity="0.28"/>
+            <use href="#cloudPuffC" transform="translate(660 155) scale(0.55)" opacity="0.3"/>
+            <use href="#cloudPuffB" transform="translate(900 185) scale(0.7)" opacity="0.36"/>
+            <use href="#cloudPuffD" transform="translate(1040 215) scale(1.2)" opacity="0.29"/>
+            <use href="#cloudPuffB" transform="translate(1220 160) scale(0.55)" opacity="0.36"/>
+            <use href="#cloudPuffD" transform="translate(1360 210) scale(0.8)" opacity="0.32"/>
+            <use href="#cloudPuffC" transform="translate(1450 150) scale(0.5)" opacity="0.28"/>
+            <use href="#cloudPuffB" transform="translate(1525 220) scale(0.4)" opacity="0.32"/>
+          </g>
+          <g id="cloudBankNear">
+            <use href="#cloudPuffA" transform="translate(30 300) scale(1.1)" opacity="0.62"/>
+            <use href="#cloudPuffC" transform="translate(290 380) scale(0.8)" opacity="0.5"/>
+            <use href="#cloudPuffB" transform="translate(560 330) scale(1.0)" opacity="0.56"/>
+            <use href="#cloudPuffA" transform="translate(760 390) scale(0.9)" opacity="0.58"/>
+            <use href="#cloudPuffC" transform="translate(980 330) scale(0.65)" opacity="0.48"/>
+            <use href="#cloudPuffA" transform="translate(1150 360) scale(1.15)" opacity="0.62"/>
+            <use href="#cloudPuffB" transform="translate(1460 310) scale(0.75)" opacity="0.54"/>
+          </g>
+        </defs>
+      </svg>
+
+      <!-- Two pixel-aligned scene layers. Both reference the shared cloud
+           banks and keep identical hill/house geometry; every inline gradient
+           id stays unique. -->
       <div id="sceneDay" class="scene-layer scene-layer--day">
         <svg class="scene-bg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
           <defs>
@@ -96,14 +153,20 @@
           <rect width="1600" height="900" fill="url(#skyDay)"/>
           <circle cx="800" cy="140" r="240" fill="url(#sunGlow)"/>
           <circle cx="800" cy="140" r="54" fill="#f8d37c" opacity=".50"/>
-          <g fill="#ffffff" opacity=".58">
-            <path d="M148 338c-30 0-52-19-52-43 0-25 23-44 52-44 5-27 30-47 60-47 33 0 61 23 67 54 27 2 48 20 48 44 0 24-21 36-47 36H148Z"/>
-            <path d="M1378 388c-27 0-47-17-47-38 0-22 20-39 47-39 4-24 27-42 54-42 30 0 55 21 60 48 24 2 43 18 43 39 0 21-19 32-42 32h-115Z"/>
-          </g>
           <path d="M0 640 C 220 520 410 540 590 600 C 800 670 950 530 1150 548 C 1330 564 1480 630 1600 606 L 1600 900 L 0 900 Z"
                 fill="url(#hillFar)" opacity=".86"/>
           <path d="M0 730 C 260 636 445 664 650 700 C 880 740 1020 630 1210 650 C 1400 670 1515 704 1600 692 L 1600 900 L 0 900 Z"
                 fill="url(#hillNear)" opacity=".92"/>
+        </svg>
+        <svg class="cloud-sky" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+          <g class="cloud-track cloud-track--far">
+            <use href="#cloudBankFar"/>
+            <use href="#cloudBankFar" transform="translate(1600 0)"/>
+          </g>
+          <g class="cloud-track cloud-track--near">
+            <use href="#cloudBankNear"/>
+            <use href="#cloudBankNear" transform="translate(1600 0)"/>
+          </g>
         </svg>
         <div class="scene-glow scene-glow--day"></div>
         <img id="houseImg" class="house" src="/static/assets/house.svg"
@@ -191,14 +254,20 @@
           </g>
           <circle cx="800" cy="140" r="240" fill="url(#moonGlow)"/>
           <circle cx="800" cy="140" r="54" fill="#f7f1da" opacity=".90"/>
-          <g fill="#3e536b" opacity=".58">
-            <path d="M148 338c-30 0-52-19-52-43 0-25 23-44 52-44 5-27 30-47 60-47 33 0 61 23 67 54 27 2 48 20 48 44 0 24-21 36-47 36H148Z"/>
-            <path d="M1378 388c-27 0-47-17-47-38 0-22 20-39 47-39 4-24 27-42 54-42 30 0 55 21 60 48 24 2 43 18 43 39 0 21-19 32-42 32h-115Z"/>
-          </g>
           <path d="M0 640 C 220 520 410 540 590 600 C 800 670 950 530 1150 548 C 1330 564 1480 630 1600 606 L 1600 900 L 0 900 Z"
                 fill="url(#hillFarNight)" opacity=".86"/>
           <path d="M0 730 C 260 636 445 664 650 700 C 880 740 1020 630 1210 650 C 1400 670 1515 704 1600 692 L 1600 900 L 0 900 Z"
                 fill="url(#hillNearNight)" opacity=".92"/>
+        </svg>
+        <svg class="cloud-sky" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+          <g class="cloud-track cloud-track--far">
+            <use href="#cloudBankFar"/>
+            <use href="#cloudBankFar" transform="translate(1600 0)"/>
+          </g>
+          <g class="cloud-track cloud-track--near">
+            <use href="#cloudBankNear"/>
+            <use href="#cloudBankNear" transform="translate(1600 0)"/>
+          </g>
         </svg>
         <div class="scene-glow scene-glow--night"></div>
         <img class="house house--night" src="/static/assets/house-night.svg"

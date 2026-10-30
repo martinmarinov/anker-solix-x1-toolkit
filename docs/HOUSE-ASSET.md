@@ -45,9 +45,12 @@ lawn/trees are a darker sage. The CSS shadow changes from warm `rgba(92, 75, 48,
 `rgba(4, 12, 24, .30)`. The garden platform is intentionally a shade darker than the scene
 hills, so the house still sits in its own pool of moonlight.
 
-The surrounding sky lives in `app/static/index.html`. Its night layer reuses the day cloud and
-hill paths exactly, adds stars, swaps the warm sun glow for `#cfe2ff` moonlight, and uses sky
-`#192a44 → #263b55 → #425868` over hills `#a7b8a1 → #c5d2bd` (far) and
-`#b3c3a8 → #93a78d` (near). The hill band is deliberately kept moonlit rather than near-black:
-the battery caption is unchanged page ink and sits over that band, so both hill gradients clear
-4.5:1 contrast (enforced by `test_night_hills_keep_the_ink_caption_legible`).
+The surrounding sky lives in `app/static/index.html`. A shared cloud library feeds two
+parallax banks in both scene layers: far wisps move on a 300 s track, the larger near clouds on
+a 180 s track, and each track loops by exactly one 1600-unit viewBox. The night layer reuses
+the day cloud banks and hill paths exactly, adds stars, swaps the warm sun glow for `#cfe2ff`
+moonlight, and uses sky `#192a44 → #263b55 → #425868` over hills `#a7b8a1 → #c5d2bd` (far) and
+`#b3c3a8 → #93a78d` (near). Day clouds are paper white; night clouds use `#3e536b`. The hill
+band is deliberately kept moonlit rather than near-black: the battery caption is unchanged
+page ink and sits over that band, so both hill gradients clear 4.5:1 contrast (enforced by
+`test_night_hills_keep_the_ink_caption_legible`).

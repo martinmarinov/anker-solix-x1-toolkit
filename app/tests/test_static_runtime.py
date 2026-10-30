@@ -390,8 +390,9 @@ class StaticRuntimeTests(unittest.TestCase):
         self.assertEqual(html.count('class="scene-layer '), 2)
         day, night = re.findall(
             r'<svg class="scene-bg"[^>]*>(.*?)</svg>', html, re.S)
-        # Same clouds and hills, same coordinates; the stars are the only new
-        # geometry, otherwise the crossfade would ghost.
+        # Same hills, same coordinates; the stars are the only new geometry.
+        # The clouds live in the shared library above, so both layers also
+        # animate exactly the same paths.
         self.assertEqual(
             re.findall(r'\sd="([^"]+)"', day),
             re.findall(r'\sd="([^"]+)"', night),
@@ -406,6 +407,37 @@ class StaticRuntimeTests(unittest.TestCase):
         # gradients.
         ids = re.findall(r'id="([^"]+)"', html)
         self.assertEqual(len(ids), len(set(ids)))
+
+    def test_cloud_field_drifts_over_both_sky_layers(self):
+        html = INDEX.read_text(encoding="utf-8")
+        self.assertIn('class="cloud-library"', html)
+        self.assertEqual(html.count('class="cloud-sky"'), 2)
+        self.assertEqual(html.count('class="cloud-track cloud-track--far"'), 2)
+        self.assertEqual(html.count('class="cloud-track cloud-track--near"'), 2)
+        # One shared set of banks, referenced twice per scene layer (the bank
+        # plus its wrap copy), keeps the day/night clouds pixel-aligned.
+        self.assertEqual(html.count('id="cloudBankFar"'), 1)
+        self.assertEqual(html.count('id="cloudBankNear"'), 1)
+        self.assertEqual(html.count('href="#cloudBankFar"'), 4)
+        self.assertEqual(html.count('href="#cloudBankNear"'), 4)
+        self.assertIn('transform="translate(1600 0)"', html)
+
+        css = (STATIC / "css/home.css").read_text(encoding="utf-8")
+        for snippet in (
+                ".cloud-sky {",
+                ".scene-layer--day .cloud-sky { fill: #ffffff; }",
+                ".scene-layer--night .cloud-sky { fill: #3e536b; }",
+                ".cloud-track--far { animation: cloud-drift 300s linear -121s infinite; }",
+                ".cloud-track--near { animation: cloud-drift 180s linear -73s infinite; }",
+                "@keyframes cloud-drift {",
+                "transform: translateX(-1600px);",
+                ".cloud-track { animation: none !important; }",
+        ):
+            self.assertIn(snippet, css)
+        # The scenery is static markup and CSS; no per-frame script, no timer.
+        js = (STATIC / "home-view.js").read_text(encoding="utf-8")
+        self.assertNotIn("cloud-track", js)
+        self.assertEqual(js.count("setInterval"), 1)
 
     def test_night_hills_keep_the_ink_caption_legible(self):
         base = (STATIC / "css/base.css").read_text(encoding="utf-8")

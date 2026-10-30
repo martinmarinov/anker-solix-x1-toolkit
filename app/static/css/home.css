@@ -41,6 +41,41 @@
   height: 100%;
 }
 
+/* The cloud library is a 1 px offscreen SVG. Both scene layers reference its
+   banks, so the day and night clouds keep exactly the same geometry while the
+   clock crossfades their fill from paper white to moonlit slate. */
+.cloud-library {
+  position: absolute;
+  left: -2px;
+  top: -2px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.cloud-sky {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.scene-layer--day .cloud-sky { fill: #ffffff; }
+.scene-layer--night .cloud-sky { fill: #3e536b; }
+
+/* Two parallax banks, each one viewBox wide and repeated once. A track moves
+   exactly one viewBox per cycle, so the loop seam sits outside the artwork.
+   Far clouds are smaller, fainter and slower; near clouds carry the motion. */
+.cloud-track { transform-box: view-box; }
+.cloud-track--far { animation: cloud-drift 300s linear -121s infinite; }
+.cloud-track--near { animation: cloud-drift 180s linear -73s infinite; }
+
+@keyframes cloud-drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(-1600px); }
+}
+
 /* Two identical-geometry layers. The full-bleed sky keeps each layer opaque,
    so the clock's opacity crossfade is a true colour interpolation. */
 .scene-layer {
@@ -814,4 +849,6 @@
   .flow-dots, .power-bar { transition: none; }
   .flow-dots { animation: none !important; }
   .battery-fill::after { animation: none !important; opacity: 0 !important; }
+  /* Keep the cloudscape's composition, but stop the sky moving. */
+  .cloud-track { animation: none !important; }
 }
