@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="artboard-width" content="806">
+<title>Skylight daylight — Home</title>
+<style>
+/* Shared daylight shell: tokens, reset, login, generic controls and modals. */
+
+:root {
+  color-scheme: light;
+  --bg: #f4efe4;
+  --bg-2: #eef4f5;
+  --surface: #fffdf8;
+  --surface-2: #fbf6ec;
+  --surface-3: #f0e9db;
+  --card: #fffdf8;
+  --ink: #17252f;
+  --text-soft: #33424c;
+  --muted: #5a6b75;
+  --muted-rgb: 90, 107, 117;
+  --slate: #64748b;
+  --slate-rgb: 100, 116, 139;
+  --line: rgba(122, 108, 88, .18);
+  --line-strong: rgba(122, 108, 88, .34);
+  --accent: #0b6e99;
+  --accent-2: #075a7e;
+  --solar: #f59e0b;
+  --solar-ink: #a16207;
+  --grid: #2563eb;
+  --grid-ink: #1e40af;
+  --grid-ink-rgb: 30, 64, 175;
+  --battery: #16a34a;
+  --battery-ink: #14532d;
+  --home: #ea580c;
+  --home-ink: #c2410c;
+  --bad: #b91c1c;
+  --bad-rgb: 185, 28, 28;
+  --bad-soft: #fee2e2;
+  --good: #166534;
+  --good-rgb: 22, 101, 52;
+  --good-soft: #dcfce7;
+  --warn: #92400e;
+  --warn-rgb: 146, 64, 14;
+  --warn-soft: #fef3c7;
+  --info: #0b6e99;
+  --info-soft: #e0f2fe;
+  /* Skylight meter fills: bright accents sampled from the calendar chips and
+     the battery. Each card's top rule, shadow and readout glow use the same
+     fill as its bars; the readout and icon stay page ink. */
+  --bar-green: #7acc70;
+  --bar-green-rgb: 122, 204, 112;
+  --bar-amber: #e6be4a;
+  --bar-amber-rgb: 230, 190, 74;
+  --bar-blue: #447cd6;
+  --bar-blue-rgb: 68, 124, 214;
+  --bar-edge: rgba(23, 37, 47, .40);
+  /* Darker shades of each fill for the dense 1px core of the readout/icon
+     glow. These sit on cream, so they stay softer than the page ink. */
+  --edge-green: #5f9661;
+  --edge-amber: #a18c48;
+  --edge-blue: #3561a4;
+  --edge-red: #862c30;
+  --edge-off: #4b565e;
+  --card-edge: var(--edge-off);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --shadow: 0 18px 60px rgba(69, 56, 36, .16);
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 14.5px/1.55 var(--font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 9px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 253, 248, .82);
+  padding: 8px 14px;
+  color: var(--ink);
+}
+
+button:hover { border-color: rgba(90, 76, 56, .52); background: #fffdf8; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fffdf8; font-weight: 700; }
+button.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+button.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+button.ghost:hover { color: var(--ink); background: rgba(122, 108, 88, .08); }
+button.danger { color: var(--bad); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+
+input, select, textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #fffdf8;
+  color: var(--ink);
+}
+
+input::placeholder { color: #8b8172; }
+input:focus, select:focus, button:focus-visible, textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.hide { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.err { color: var(--bad); font-size: 13px; margin-top: 10px; }
+.ok { color: var(--good); }
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 46px;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13px;
+  border: 1px solid transparent;
+  color: var(--text-soft);
+}
+.banner.warn { background: var(--warn-soft); border-color: #f2d38b; color: #78350f; }
+.banner.bad { background: var(--bad-soft); border-color: #f3b4b4; color: #7f1d1d; }
+.banner.good { background: var(--good-soft); border-color: #b5e3c2; color: #14532d; }
+.banner.info { background: var(--info-soft); border-color: #b9dfef; color: #075985; }
+
+.spin {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: sp .8s linear infinite;
+  vertical-align: -1px;
+  margin-right: 6px;
+}
+@keyframes sp { to { transform: rotate(360deg); } }
+
+/* ------------------------------------------------------------------ login */
+
+.login-screen {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  overflow: auto;
+  background:
+    radial-gradient(900px 520px at 50% 4%, rgba(255, 224, 150, .40), transparent 70%),
+    radial-gradient(760px 520px at 84% 100%, rgba(181, 215, 201, .36), transparent 70%),
+    linear-gradient(180deg, #eaf4f9 0%, #f4efe4 58%, #f1e8d6 100%);
+}
+
+.login-card {
+  width: min(430px, 100%);
+  background: linear-gradient(150deg, #fffdf8, #fbf5e9);
+  border: 1px solid var(--line-strong);
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: var(--shadow);
+}
+
+.login-card h1 {
+  font-size: 23px;
+  margin: 0 0 6px;
+  letter-spacing: -.025em;
+}
+.login-card > p { color: var(--muted); font-size: 13.5px; margin: 0 0 20px; }
+.login-mark {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 12px;
+  margin-bottom: 15px;
+  color: var(--solar-ink);
+  background: #fef3c7;
+  border: 1px solid #f2d38b;
+}
+.login-mark svg { width: 24px; height: 24px; }
+
+.field { margin: 13px 0; }
+.field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.field input, .field select { width: 100%; }
+
+.note {
+  font-size: 12.5px;
+  color: var(--text-soft);
+  background: #e8f4f9;
+  border: 1px solid #c9e4ee;
+  border-radius: 10px;
+  padding: 11px 12px;
+  margin-top: 18px;
+  line-height: 1.5;
+}
+
+/* ----------------------------------------------------------------- modal */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(23, 37, 47, .38);
+  backdrop-filter: blur(5px);
+}
+
+.modal {
+  width: min(560px, 100%);
+  max-height: 88vh;
+  overflow: auto;
+  padding: 22px;
+  border-radius: 16px;
+  color: var(--ink);
+  background: linear-gradient(160deg, #fffdf8, #f8f1e4 72%);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 30px 90px rgba(69, 56, 36, .28);
+}
+.modal h3 { margin: 0 0 6px; font-size: 17px; }
+.modal .diff {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: #f7f2e7;
+  color: #33424c;
+  padding: 12px;
+  border-radius: 10px;
+  max-height: 220px;
+  overflow: auto;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+}
+.modal .diff b { color: #14532d; }
+.check { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; margin: 12px 0; color: var(--text-soft); }
+.check input { margin-top: 3px; }
+.actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+.result {
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: #f7f2e7;
+  color: #33424c;
+  padding: 12px;
+  border-radius: 10px;
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+/* Wall-display Home stage: central battery hub, daylight composition. */
+
+#appView {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+}
+
+.home-stage {
+  --u: clamp(4.6px, min(0.598vw, 1.063vh), 14px);
+  --type-scale: 1;
+  --fs-label: clamp(12px, calc(var(--u) * 2.6), 34px);
+  --fs-value: clamp(30px, calc(var(--u) * 7.3), 96px);
+  --fs-unit: clamp(12px, calc(var(--u) * 3.0), 40px);
+  --fs-foot: clamp(10px, calc(var(--u) * 2.2), 28px);
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--ink);
+  background:
+    radial-gradient(900px 520px at 50% 5%, rgba(255, 220, 130, .40), transparent 68%),
+    radial-gradient(760px 500px at 82% 72%, rgba(168, 198, 160, .18), transparent 70%),
+    linear-gradient(180deg, #eaf4f9 0%, #f6f1e5 55%, #f0e7d5 100%);
+}
+
+/* --------------------------------------------------------------- scene */
+
+.scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.scene-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.scene-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(40% 38% at 50% 46%, rgba(255, 230, 170, .13), transparent 70%),
+    radial-gradient(72% 42% at 50% 90%, rgba(194, 214, 181, .17), transparent 76%),
+    radial-gradient(28% 22% at 50% 63%, rgba(255, 255, 255, .10), transparent 72%);
+}
+
+.house {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  z-index: 1;
+  width: min(64%, calc(var(--u) * 107));
+  height: auto;
+  transform: translate(-50%, -50%);
+  filter: drop-shadow(0 28px 34px rgba(92, 75, 48, .14));
+}
+
+/* --------------------------------------------------------------- tiles */
+
+.tiles {
+  --tile-w: min(30.3%, calc(var(--u) * 50.7));
+  --card-h: calc(var(--u) * 19.6);
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.tile {
+  --card-accent: var(--muted);
+  --card-accent-rgb: var(--muted-rgb);
+  --card-border: #ded6c7;
+  --card-edge: var(--edge-off);
+  --glow-ring: calc(calc(var(--u) * .30) * var(--type-scale));
+  --glow-bloom: calc(calc(var(--u) * .68) * var(--type-scale));
+  --glow-wide: calc(calc(var(--u) * 1.05) * var(--type-scale));
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 2.1);
+  padding: calc(var(--u) * 2.0) calc(var(--u) * 2.4);
+  border-radius: calc(var(--u) * 2.4);
+  border: 1.5px solid var(--card-border);
+  border-top: 4px solid var(--card-accent);
+  background: linear-gradient(155deg, #fffdf8 0%, #fffaf0 100%);
+  box-shadow:
+    0 12px 28px rgba(var(--card-accent-rgb), .18),
+    0 2px 4px rgba(69, 56, 36, .06),
+    inset 0 1px 0 rgba(255, 255, 255, .90);
+  color: var(--ink);
+}
+
+.tile--solar {
+  --card-accent: var(--solar-ink);
+  left: 2.7%;
+  top: 7.4%;
+  width: var(--tile-w);
+  height: var(--card-h);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  row-gap: calc(var(--u) * 1.05);
+  column-gap: calc(var(--u) * 2.1);
+}
+
+.tile--grid {
+  --card-accent: var(--grid-ink);
+  right: 2.6%;
+  top: 12.2%;
+  width: var(--tile-w);
+  height: var(--card-h);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  row-gap: calc(var(--u) * 1.05);
+  column-gap: calc(var(--u) * 2.1);
+}
+
+.tile--home {
+  --card-accent: var(--home-ink);
+  left: 2.4%;
+  top: 66.4%;
+  width: var(--tile-w);
+  height: var(--card-h);
+  min-height: calc(var(--u) * 18);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  row-gap: calc(var(--u) * 1.05);
+  column-gap: calc(var(--u) * 2.1);
+}
+
+/* The active meter band also owns the card accent: value, unit, icon, top
+   rule and shadow use the same fill as the bars. Keep these rules after the
+   per-card defaults so the state always wins. */
+.tile[data-level="green"] {
+  --card-accent: var(--bar-green);
+  --card-accent-rgb: var(--bar-green-rgb);
+  --card-edge: var(--edge-green);
+}
+.tile[data-level="amber"] {
+  --card-accent: var(--bar-amber);
+  --card-accent-rgb: var(--bar-amber-rgb);
+  --card-edge: var(--edge-amber);
+}
+.tile[data-level="red"] {
+  --card-accent: var(--bad);
+  --card-accent-rgb: var(--bad-rgb);
+  --card-edge: var(--edge-red);
+}
+.tile[data-level="export"] {
+  --card-accent: var(--bar-blue);
+  --card-accent-rgb: var(--bar-blue-rgb);
+  --card-edge: var(--edge-blue);
+}
+.tile[data-level="off"] {
+  --card-accent: var(--muted);
+  --card-accent-rgb: var(--muted-rgb);
+  --card-edge: var(--edge-off);
+}
+
+.tile-icon {
+  flex: none;
+  width: calc(calc(var(--u) * 7.8) * var(--type-scale));
+  height: calc(calc(var(--u) * 7.8) * var(--type-scale));
+  color: var(--ink);
+  /* Four centred shadows trace the SVG alpha: a dense core in the fill's
+     darker shade, then the bar fill and two soft blooms. */
+  filter:
+    drop-shadow(0 0 1px var(--card-edge))
+    drop-shadow(0 0 var(--glow-ring) var(--card-accent))
+    drop-shadow(0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50))
+    drop-shadow(0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22));
+}
+.tile-icon svg { display: block; width: 100%; height: 100%; }
+
+.solar-icon svg { display: none; }
+.solar-icon[data-icon="sun"] .solar-icon__sun { display: block; }
+.solar-icon[data-icon="moon"] .solar-icon__moon { display: block; }
+.solar-icon[data-icon="cloud"] .solar-icon__cloud { display: block; }
+
+.tile-body { min-width: 0; flex: 1 1 auto; }
+
+.tile-label {
+  font-size: calc(var(--fs-label) * var(--type-scale));
+  line-height: 1.1;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tile-value {
+  display: flex;
+  align-items: baseline;
+  gap: calc(var(--u) * 1.1);
+  margin-top: calc(var(--u) * .55);
+  color: var(--ink);
+  font-size: calc(var(--fs-value) * var(--type-scale));
+  line-height: .95;
+  font-weight: 700;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  /* The meter lights the dark readout from behind: centred core, ring and
+     blooms. 0 0 offsets keep it a halo rather than a drop shadow. */
+  text-shadow:
+    0 0 1px var(--card-edge),
+    0 0 var(--glow-ring) var(--card-accent),
+    0 0 var(--glow-bloom) rgba(var(--card-accent-rgb), .50),
+    0 0 var(--glow-wide) rgba(var(--card-accent-rgb), .22);
+}
+
+.tile-unit {
+  font-size: calc(var(--fs-unit) * var(--type-scale));
+  font-weight: 600;
+  letter-spacing: 0;
+  color: inherit;
+}
+
+.tile-foot {
+  margin-top: calc(var(--u) * .35);
+  min-height: 1.1em;
+  font-size: calc(var(--fs-foot) * var(--type-scale));
+  line-height: 1.2;
+  color: var(--muted);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Five-segment power meters shared by Solar, Grid and Home Load. One/two bars
+   are green, three/four amber and five red; Grid export uses blue. The bars,
+   the card's top rule, its tinted shadow and the readout glow all use the
+   bright Skylight accent.
+   The bars themselves stay solid: the panel's contrast is modest and thin
+   luminous lines disappear at distance. The 1px ink rim on a lit bar darkens
+   the fill at its own edge and keeps the pale silhouettes crisp. */
+.power-bars {
+  --bar-color: var(--muted);
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: calc(var(--u) * .7);
+  width: 100%;
+}
+.power-bars[data-level="green"] { --bar-color: var(--bar-green); }
+.power-bars[data-level="amber"] { --bar-color: var(--bar-amber); }
+.power-bars[data-level="red"] { --bar-color: var(--bad); }
+.power-bars[data-level="export"] { --bar-color: var(--bar-blue); }
+.power-bars[data-level="off"] { --bar-color: var(--muted); }
+
+.power-bar {
+  height: calc(var(--u) * .82);
+  min-height: 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(122, 108, 88, .18);
+  background: rgba(122, 108, 88, .14);
+  transition: background-color .35s ease, border-color .35s ease;
+}
+.power-bar.is-on {
+  border-color: var(--bar-edge);
+  background: var(--bar-color);
+}
+
+.home-stage[data-available="false"] .tile {
+  --card-accent: var(--slate);
+  --card-accent-rgb: var(--slate-rgb);
+  --card-border: #ded6c7;
+}
+.home-stage[data-available="false"] .tile-icon {
+  color: var(--slate);
+  opacity: .62;
+  filter: none;
+}
+.home-stage[data-available="false"] .tile-value {
+  color: var(--slate);
+  text-shadow: none;
+}
+
+.home-stage[data-stale="true"] .tile {
+  opacity: .76;
+}
+
+/* --------------------------------------------------------- battery hub */
+
+.battery-hero {
+  --battery-rgb: 52, 211, 153;
+  --battery-ink-rgb: 20, 83, 45;
+  --battery-color: rgb(var(--battery-rgb));
+  position: absolute;
+  left: 50%;
+  top: 25.3%;
+  z-index: 4;
+  width: min(14%, calc(var(--u) * 23.4));
+  transform: translateX(-50%);
+  text-align: center;
+  pointer-events: none;
+}
+
+.battery-shell {
+  position: relative;
+  width: 100%;
+  aspect-ratio: .53;
+  border: 2.5px solid rgba(var(--battery-ink-rgb), .55);
+  border-radius: calc(var(--u) * 1.8) calc(var(--u) * 1.8) calc(var(--u) * 2.8) calc(var(--u) * 2.8);
+  background: linear-gradient(165deg, #fffdf8, #f6f0e4 72%);
+  box-shadow:
+    0 18px 36px rgba(69, 56, 36, .16),
+    inset 0 1px 0 rgba(255, 255, 255, .90);
+  transition: border-color .8s ease, box-shadow .8s ease;
+}
+
+.battery-cap {
+  position: absolute;
+  left: 31%;
+  top: -3.1%;
+  width: 38%;
+  height: 3.3%;
+  z-index: 2;
+  border: 2.5px solid rgba(var(--battery-ink-rgb), .48);
+  border-bottom: 0;
+  border-radius: calc(var(--u) * .7) calc(var(--u) * .7) 0 0;
+  background: #fffdf8;
+  transition: border-color .8s ease;
+}
+
+.battery-inner {
+  position: absolute;
+  inset: 5.5% 6.5%;
+  overflow: hidden;
+  border-radius: calc(var(--u) * 1.2) calc(var(--u) * 1.2) calc(var(--u) * 2.2) calc(var(--u) * 2.2);
+  background: #f3ede1;
+  box-shadow: inset 0 0 0 1px rgba(122, 108, 88, .14);
+  transition: box-shadow .8s ease;
+}
+
+.battery-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  height: calc(var(--soc, 0) * 1%);
+  overflow: hidden;
+  border-radius: 2px 2px 0 0;
+  background-color: var(--battery-color);
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, .34) 0%,
+                    rgba(255, 255, 255, .04) 38%, rgba(0, 0, 0, .06) 100%);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, .30);
+  transition: height .45s ease, background-color .8s ease, box-shadow .8s ease;
+}
+
+/* The shimmer travels in the direction the battery is moving: down while
+   discharging, up while charging. It is deliberately clipped to the fill,
+   so the pale headroom above the current SOC stays clean. */
+.battery-fill::after {
+  content: "";
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  top: -65%;
+  height: 45%;
+  border-radius: 50%;
+  background: linear-gradient(180deg, transparent 0%, rgba(255, 255, 255, .12) 24%,
+              rgba(255, 255, 255, .62) 50%, rgba(255, 255, 255, .12) 76%, transparent 100%);
+  filter: blur(3px);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.home-stage[data-battery="discharging"] .battery-fill::after {
+  opacity: .72;
+  animation: battery-shimmer-down 2.5s linear infinite;
+}
+
+.home-stage[data-battery="charging"] .battery-fill::after {
+  opacity: .72;
+  animation: battery-shimmer-up 2.5s linear infinite;
+}
+
+@keyframes battery-shimmer-down {
+  0% { transform: translateY(-20%); }
+  100% { transform: translateY(400%); }
+}
+
+@keyframes battery-shimmer-up {
+  0% { transform: translateY(400%); }
+  100% { transform: translateY(-20%); }
+}
+
+.battery-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(255, 255, 255, .18), transparent 20%,
+              transparent 80%, rgba(69, 56, 36, .06));
+  pointer-events: none;
+}
+
+.battery-content {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8%;
+}
+
+.battery-soc {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: .02em;
+  color: var(--ink);
+  font-size: calc(clamp(30px, calc(var(--u) * 9.2), 116px) * var(--type-scale));
+  line-height: .82;
+  font-weight: 700;
+  letter-spacing: -.045em;
+  font-variant-numeric: tabular-nums;
+}
+
+.battery-soc-unit {
+  font-size: .74em;
+  letter-spacing: -.03em;
+}
+
+.battery-power {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: calc(var(--u) * .7);
+  margin-top: calc(var(--u) * 1.4);
+  color: var(--ink);
+  font-size: calc(clamp(12px, calc(var(--u) * 3.0), 36px) * var(--type-scale));
+  line-height: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: color .8s ease;
+}
+
+.battery-power-unit {
+  color: inherit;
+  font-size: .72em;
+}
+
+.battery-caption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--u) * .25);
+  margin-top: calc(var(--u) * 1.2);
+  white-space: normal;
+}
+
+.battery-caption-label {
+  color: var(--ink);
+  font-size: calc(clamp(12px, calc(var(--u) * 2.35), 30px) * var(--type-scale));
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.battery-caption-value {
+  color: var(--ink);
+  font-size: calc(clamp(12px, calc(var(--u) * 2.35), 32px) * var(--type-scale));
+  font-weight: 600;
+  line-height: 1.15;
+  white-space: pre-line;
+  letter-spacing: .01em;
+  font-variant-numeric: tabular-nums;
+  transition: color .8s ease;
+}
+
+.live-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--u) * .8);
+  margin-top: calc(var(--u) * .95);
+  color: var(--muted);
+  font-size: calc(clamp(12px, calc(var(--u) * 1.9), 22px) * var(--type-scale));
+  letter-spacing: .10em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 1;
+}
+.live-status[data-level="live"] { display: none; }
+
+.home-stage[data-available="false"] .battery-shell {
+  border-color: #c9c1b2;
+  box-shadow: 0 12px 26px rgba(69, 56, 36, .10);
+}
+.home-stage[data-available="false"] .battery-cap {
+  border-color: #c9c1b2;
+}
+.home-stage[data-available="false"] .battery-soc,
+.home-stage[data-available="false"] .battery-power { color: var(--slate); }
+.home-stage[data-available="false"] .battery-caption-value { color: var(--slate); }
+/* Use a filter rather than opacity so the battery keeps its opaque shell and
+   the house cannot show through it when the feed is stale. */
+.home-stage[data-stale="true"] .battery-hero {
+  filter: saturate(.45) brightness(.97);
+}
+
+.home-stage[data-battery="charging"] .battery-shell {
+  border-color: rgba(var(--battery-ink-rgb), .78);
+}
+.home-stage[data-battery="discharging"] .battery-shell {
+  border-color: rgba(var(--battery-ink-rgb), .64);
+}
+
+.status-dot {
+  width: calc(var(--u) * 1.05);
+  height: calc(var(--u) * 1.05);
+  min-width: 7px;
+  min-height: 7px;
+  border-radius: 50%;
+  background: #64748b;
+  box-shadow: 0 0 0 0 transparent;
+}
+.status-dot.is-live {
+  background: var(--good);
+  box-shadow: 0 0 0 3px rgba(21, 128, 61, .14);
+}
+.status-dot.is-stale { background: var(--warn); }
+.status-dot.is-waiting { background: var(--muted); }
+.status-dot.is-offline { background: var(--bad); }
+
+/* --------------------------------------------------------------- flows */
+
+.flow-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  transition: opacity .3s ease;
+}
+
+.flow-group {
+  color: var(--muted);
+  opacity: .24;
+  transition: opacity .35s ease;
+}
+.flow-group.active { opacity: 1; }
+.flow-group[data-flow="solar"] { color: var(--solar-ink); }
+.flow-group[data-flow="grid"] { color: var(--grid-ink); }
+.flow-group[data-flow="home"] { color: var(--home-ink); }
+
+.flow-line {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: calc(var(--u) * .50);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* A cream halo lifts the wire off the house and the hills without adding a
+   glow that a low-contrast panel would smear. */
+.flow-halo {
+  fill: none;
+  stroke: #fffdf8;
+  stroke-width: calc(var(--u) * 1.65);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: .88;
+}
+
+/* A slow dotted walk in the same colour as the arrow. The offset is negative
+   so the dots travel toward the marker at the end of the already-directed
+   path (import/export and charge/discharge reverse the path itself). */
+.flow-dots {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: calc(var(--u) * .78);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: .1px 18px;
+  stroke-dashoffset: 0;
+  opacity: 0;
+  transition: opacity .35s ease;
+  pointer-events: none;
+}
+
+.flow-group.active .flow-dots {
+  opacity: .82;
+  animation: flow-dot-walk 1.4s linear infinite;
+}
+
+@keyframes flow-dot-walk {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -18.1px; }
+}
+
+.home-stage[data-stale="true"] .flow-layer { opacity: .52; }
+.home-stage[data-available="false"] .flow-layer { opacity: 0; }
+
+/* --------------------------------------------------------------- burger */
+
+.menu-btn {
+  position: absolute;
+  left: 2.6%;
+  top: 1.4%;
+  z-index: 8;
+  width: max(44px, calc(var(--u) * 4.4));
+  height: max(44px, calc(var(--u) * 4.4));
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 14px;
+  border: 1.5px solid rgba(122, 108, 88, .28);
+  background: rgba(255, 253, 248, .88);
+  color: var(--text-soft);
+  box-shadow: 0 10px 24px rgba(69, 56, 36, .12);
+}
+.menu-btn:hover { background: #fffdf8; border-color: rgba(90, 76, 56, .52); color: var(--ink); }
+.menu-btn:focus { outline: none; }
+.menu-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.menu-btn svg { width: 55%; height: 55%; }
+.menu-btn::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bad);
+  box-shadow: 0 0 0 3px rgba(185, 28, 28, .12);
+  opacity: 0;
+}
+.menu-btn.has-error::after { opacity: 1; }
+
+.home-alert {
+  position: absolute;
+  left: 50%;
+  top: 2.4%;
+  z-index: 7;
+  transform: translateX(-50%);
+  max-width: min(62%, 760px);
+  padding: 10px 14px;
+  border-radius: 11px;
+  border: 1px solid #f3b4b4;
+  background: rgba(254, 226, 226, .97);
+  color: #7f1d1d;
+  font-size: clamp(11px, calc(var(--u) * 1.55), 18px);
+  font-weight: 500;
+  line-height: 1.35;
+  box-shadow: 0 14px 40px rgba(69, 56, 36, .18);
+}
+
+/* --------------------------------------------------------------- 3:2/4:3 */
+
+@media (max-aspect-ratio: 3/2) {
+  .house {
+    top: 43.5%;
+    width: min(58.5%, calc(var(--u) * 98));
+  }
+  .battery-hero { top: 31%; }
+  .tile--home { top: 64%; }
+}
+
+/* ------------------------------------------------------------- tall / square */
+
+@media (min-width: 701px) and (max-aspect-ratio: 1/1) {
+  .tile--solar,
+  .tile--grid { top: 18%; }
+  .battery-hero { top: 33%; }
+  .tile--home { top: 70%; }
+}
+
+/* --------------------------------------------------- portrait / small */
+
+/* Keep the same around-the-house composition when the viewport turns
+   portrait; only the proportions change. No stacked fallback.
+   Use the ratio form: Chromium 95 in the Skylight WebView does not match
+   decimal aspect-ratio queries such as `0.95`, but does match `95/100`. */
+@media (max-aspect-ratio: 95/100) {
+  .home-stage {
+    --type-scale: 1.5;
+  }
+
+  .house {
+    top: 44%;
+    width: 86%;
+  }
+
+  .battery-hero {
+    top: 28%;
+    width: 28%;
+  }
+
+  .tiles {
+    --tile-w: 46%;
+    --card-h: calc(var(--u) * 25.9);
+  }
+
+  .tile--solar {
+    left: 3%;
+    right: auto;
+    top: 10%;
+  }
+  .tile--grid {
+    left: auto;
+    right: 3%;
+    top: 10%;
+  }
+  .tile--home {
+    left: 50%;
+    right: auto;
+    top: auto;
+    bottom: .5%;
+    transform: translateX(-50%);
+  }
+
+  .menu-btn {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-aspect-ratio: 95/100) and (max-width: 599px) {
+  .home-stage {
+    --type-scale: 1;
+  }
+  .tiles {
+    --card-h: calc(var(--u) * 19.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flow-group, .flow-layer, .battery-fill, .battery-shell, .battery-cap,
+  .battery-inner, .battery-power, .battery-caption-value,
+  .flow-dots, .power-bar { transition: none; }
+  .flow-dots { animation: none !important; }
+  .battery-fill::after { animation: none !important; opacity: 0 !important; }
+}
+
+html, body { margin: 0; background: #f4efe4; overflow: hidden; }
+body { width: 806px; height: 1008px; }
+#appView { position: relative; width: 806px; height: 1008px; }
+.home-stage { position: relative; width: 806px; height: 1008px; }
+</style></head><body>
+<section id="appView">
+  <main id="homeView" class="home-stage" data-available="true" data-stale="false" data-status="live" data-solar="producing" data-grid="importing" data-battery="discharging" data-home="consuming" style="--u: 4.820574162679426px;">
+
+    <div class="scene" aria-hidden="true">
+      <svg class="scene-bg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <linearGradient id="skyDay" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#eaf5fb"></stop>
+            <stop offset=".58" stop-color="#f7f2e6"></stop>
+            <stop offset="1" stop-color="#f2e9d7"></stop>
+          </linearGradient>
+          <linearGradient id="hillFar" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#dbe8d3"></stop>
+            <stop offset="1" stop-color="#eee9db"></stop>
+          </linearGradient>
+          <linearGradient id="hillNear" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#cfe0c0"></stop>
+            <stop offset="1" stop-color="#e9e1cd"></stop>
+          </linearGradient>
+          <radialGradient id="sunGlow" cx=".5" cy=".5" r=".5">
+            <stop offset="0" stop-color="#fde68a" stop-opacity=".58"></stop>
+            <stop offset=".55" stop-color="#fde68a" stop-opacity=".20"></stop>
+            <stop offset="1" stop-color="#fde68a" stop-opacity="0"></stop>
+          </radialGradient>
+        </defs>
+        <rect width="1600" height="900" fill="url(#skyDay)"></rect>
+        <circle cx="800" cy="140" r="240" fill="url(#sunGlow)"></circle>
+        <circle cx="800" cy="140" r="54" fill="#f8d37c" opacity=".50"></circle>
+        <g fill="#ffffff" opacity=".58">
+          <path d="M148 338c-30 0-52-19-52-43 0-25 23-44 52-44 5-27 30-47 60-47 33 0 61 23 67 54 27 2 48 20 48 44 0 24-21 36-47 36H148Z"></path>
+          <path d="M1378 388c-27 0-47-17-47-38 0-22 20-39 47-39 4-24 27-42 54-42 30 0 55 21 60 48 24 2 43 18 43 39 0 21-19 32-42 32h-115Z"></path>
+        </g>
+        <path d="M0 640 C 220 520 410 540 590 600 C 800 670 950 530 1150 548 C 1330 564 1480 630 1600 606 L 1600 900 L 0 900 Z" fill="url(#hillFar)" opacity=".86"></path>
+        <path d="M0 730 C 260 636 445 664 650 700 C 880 740 1020 630 1210 650 C 1400 670 1515 704 1600 692 L 1600 900 L 0 900 Z" fill="url(#hillNear)" opacity=".92"></path>
+      </svg>
+      <div class="scene-glow"></div>
+      <img id="houseImg" class="house" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgOTAgMTIwMCA1OTAiIHJvbGU9ImltZyIgYXJpYS1sYWJlbGxlZGJ5PSJob3VzZVRpdGxlIj4KICA8dGl0bGUgaWQ9ImhvdXNlVGl0bGUiPk1vZGVybiBob21lIHdpdGggcm9vZnRvcCBzb2xhciBwYW5lbHMgaW4gZGF5bGlnaHQ8L3RpdGxlPgogIDxkZWZzPgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJsYXduIiB4MT0iMCIgeTE9IjAiIHgyPSIwIiB5Mj0iMSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2UzZWNkMyIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiNjZmRlYzAiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9IndhbGxGcm9udCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZmZkZjciLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZjVlOWQ4Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJ3YWxsU2lkZSIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmMGUxY2UiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZTJjZWI1Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJyb29mTGVmdCIgeDE9IjAiIHkxPSIwIiB4Mj0iMSIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNjNWQ5ZTIiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjYWFjNGQxIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJyb29mUmlnaHQiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjYjNjYWQ2Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzk2YjJjMSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0ic29sYXIiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjYTdjZGU2Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzdmYWRjYiIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0id2luZG93V2FybSIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNmZGYwYzYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjZjdkZGEwIi8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogICAgPGxpbmVhckdyYWRpZW50IGlkPSJnbGFzcyIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiNkY2VlZjYiLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjYmNkYmU4Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KCiAgPCEtLSBzb2Z0IGdhcmRlbiBwbGF0Zm9ybSAtLT4KICA8cGF0aCBkPSJNNzggNTQ4IEMgMjEwIDUwNiA0MTAgNTAwIDU5NiA1MTQgQyA3OTIgNTI5IDEwMDQgNTE4IDExMTIgNTUwIEMgMTE4NCA1NzEgMTE0NCA2MjAgOTc4IDY0NCBDIDc2MCA2NzQgMzcwIDY3NiAxODggNjQ2IEMgNTggNjI1IDMyIDU3MyA3OCA1NDggWiIKICAgICAgICBmaWxsPSJ1cmwoI2xhd24pIi8+CiAgPHBhdGggZD0iTTEyNCA1NTYgQyAyNjAgNTIyIDQzMCA1MTggNTk2IDUzMCBDIDc3NiA1NDMgOTcyIDUzMiAxMDcyIDU1OCBDIDExMjggNTczIDEwOTQgNjA0IDk1OCA2MjQgQyA3NjAgNjUzIDM5MCA2NTQgMjI0IDYyOCBDIDEyMCA2MTIgOTIgNTc4IDEyNCA1NTYgWiIKICAgICAgICBmaWxsPSIjZDhlNWM4IiBvcGFjaXR5PSIuNjAiLz4KICA8cGF0aCBkPSJNMjM4IDU3OCBDIDI5MiA1NjMgMzkwIDU2MCA0NjggNTcyIEwgNDU2IDYwMCBDIDM2NiA2MTAgMjkwIDYwNiAyNDAgNTkyIFoiCiAgICAgICAgZmlsbD0iI2M5ZGFiNSIgb3BhY2l0eT0iLjgwIi8+CiAgPHBhdGggZD0iTTc5MCA1ODAgQyA4NjAgNTY4IDk2MCA1NzAgMTAyMCA1ODQgTCAxMDA2IDYwOCBDIDkyNCA2MTYgODQ2IDYxMSA4MDAgNjAwIFoiCiAgICAgICAgZmlsbD0iI2M5ZGFiNSIgb3BhY2l0eT0iLjc1Ii8+CgogIDwhLS0gdHdvIHNpbXBsZSB0cmVlcyAtLT4KICA8Zz4KICAgIDxyZWN0IHg9IjE5MiIgeT0iNDMwIiB3aWR0aD0iMTIiIGhlaWdodD0iMTI2IiByeD0iNSIgZmlsbD0iI2M5YWM4ZSIvPgogICAgPGNpcmNsZSBjeD0iMTk4IiBjeT0iMzkwIiByPSI1OCIgZmlsbD0iI2I4ZDJhZSIvPgogICAgPGNpcmNsZSBjeD0iMTY4IiBjeT0iNDI0IiByPSIzOCIgZmlsbD0iI2MzZGNjMCIvPgogICAgPGNpcmNsZSBjeD0iMjMyIiBjeT0iNDI4IiByPSIzNCIgZmlsbD0iI2FiYzg5ZiIvPgogIDwvZz4KICA8Zz4KICAgIDxyZWN0IHg9IjEwNTQiIHk9IjQzOCIgd2lkdGg9IjExIiBoZWlnaHQ9IjExOCIgcng9IjUiIGZpbGw9IiNjOWFjOGUiLz4KICAgIDxjaXJjbGUgY3g9IjEwNTkiIGN5PSI0MDIiIHI9IjUwIiBmaWxsPSIjYjhkMmFlIi8+CiAgICA8Y2lyY2xlIGN4PSIxMDMyIiBjeT0iNDMyIiByPSIzMiIgZmlsbD0iI2MzZGNjMCIvPgogICAgPGNpcmNsZSBjeD0iMTA4OCIgY3k9IjQzNCIgcj0iMzAiIGZpbGw9IiNhYmM4OWYiLz4KICA8L2c+CgogIDwhLS0gZ3JvdW5kZWQgc2hhZG93IC0tPgogIDxlbGxpcHNlIGN4PSI2NjAiIGN5PSI1OTAiIHJ4PSIzNjUiIHJ5PSIzNCIgZmlsbD0iIzdmOGY3NSIgb3BhY2l0eT0iLjE0Ii8+CgogIDwhLS0gbGVmdCBzaWRlIHdhbGwgLS0+CiAgPHBhdGggZD0iTTMyMCAzMjUgTCA1NDUgMzg1IEwgNTQ1IDU2NSBMIDMyMCA1MDAgWiIgZmlsbD0idXJsKCN3YWxsU2lkZSkiLz4KICA8cGF0aCBkPSJNMzIwIDMyNSBMIDU0NSAzODUgTCA1NDUgMzk4IEwgMzIwIDMzOCBaIiBmaWxsPSIjZmZmZGY4IiBvcGFjaXR5PSIuMzAiLz4KCiAgPCEtLSBzaWRlIHdpbmRvdywgZHJhd24gdG8gZm9sbG93IHRoZSByZWNlZGluZyB3YWxsIC0tPgogIDxwYXRoIGQ9Ik0zNzIgMzY4IEwgNDc4IDM5MCBMIDQ3OCA0NTIgTCAzNzIgNDMwIFoiIGZpbGw9IiNmZmZkZjgiLz4KICA8cGF0aCBkPSJNMzgwIDM3NiBMIDQ3MCAzOTQgTCA0NzAgNDQ0IEwgMzgwIDQyNiBaIiBmaWxsPSJ1cmwoI3dpbmRvd1dhcm0pIi8+CiAgPHBhdGggZD0iTTQyNSAzODUgTCA0MjUgNDM1IE0gMzgwIDQwNSBMIDQ3MCA0MTkiIHN0cm9rZT0iI2M3YTg2ZCIgc3Ryb2tlLXdpZHRoPSIyLjQiIG9wYWNpdHk9Ii41NSIvPgoKICA8IS0tIGZyb250IGdhYmxlIHdhbGwgLS0+CiAgPHBhdGggZD0iTTU0NSAzODUgTCA4MDAgMjE1IEwgMTA0NSAzNTAgTCAxMDQ1IDU2NSBMIDU0NSA1NjUgWiIgZmlsbD0idXJsKCN3YWxsRnJvbnQpIi8+CiAgPHBhdGggZD0iTTU0NSAzODUgTCA4MDAgMjE1IEwgMTA0NSAzNTAgTCAxMDQ1IDM2MiBMIDgwMCAyMjYgTCA1NDUgMzk4IFoiCiAgICAgICAgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iLjQyIi8+CgogIDwhLS0gcm9vZiBwbGFuZXMgLS0+CiAgPHBhdGggZD0iTTMwMCAzMDAgTCA1NDUgMzg1IEwgODAwIDIxNSBMIDU1MCAxNzUgWiIgZmlsbD0idXJsKCNyb29mTGVmdCkiLz4KICA8cGF0aCBkPSJNODAwIDIxNSBMIDEwNDUgMzUwIEwgMTA2MiAzMzcgTCA4MTcgMjAyIFoiIGZpbGw9InVybCgjcm9vZlJpZ2h0KSIvPgogIDxwYXRoIGQ9Ik0zMDAgMzAwIEwgNTQ1IDM4NSBMIDgwMCAyMTUgTCAxMDQ1IDM1MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNzk5NWEzIgogICAgICAgIHN0cm9rZS13aWR0aD0iNSIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTTU1MCAxNzUgTCA4MDAgMjE1IiBmaWxsPSJub25lIiBzdHJva2U9IiM3OTk1YTMiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CgogIDwhLS0gcm9vZnRvcCBzb2xhciBhcnJheSwgaW5zZXQgaW4gdGhlIGxlZnQgcm9vZiBwbGFuZSAtLT4KICA8cGF0aCBkPSJNMzY0LjMgMzAwLjQgTCA1NDEgMzU4LjMgTCA3MjQuMiAyMzkuOCBMIDU0NC45IDIwNS4yIFoiIGZpbGw9InVybCgjc29sYXIpIgogICAgICAgIHN0cm9rZT0iI2VhZjZmYiIgc3Ryb2tlLXdpZHRoPSIzIiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+CiAgPHBhdGggZD0iTTM2NC4zIDMwMC40IEwgNTQxIDM1OC4zIEwgNzI0LjIgMjM5LjggTCA1NDQuOSAyMDUuMiBaIiBmaWxsPSIjZmZmZmZmIiBvcGFjaXR5PSIuMTAiLz4KICA8ZyBzdHJva2U9IiNlMGYxZmEiIHN0cm9rZS13aWR0aD0iMS40IiBvcGFjaXR5PSIuODIiPgogICAgPHBhdGggZD0iTTQwOC41IDMxNC45IEwgNTg5LjcgMjEzLjkiLz4KICAgIDxwYXRoIGQ9Ik00NTIuNyAzMjkuNCBMIDYzNC41IDIyMi41Ii8+CiAgICA8cGF0aCBkPSJNNDk2LjkgMzQzLjkgTCA2NzkuNCAyMzEuMiIvPgogICAgPHBhdGggZD0iTTQyNC41IDI2OC43IEwgNjAyLjEgMzE4LjgiLz4KICAgIDxwYXRoIGQ9Ik00ODQuNyAyMzYuOSBMIDY2My4yIDI3OS4zIi8+CiAgPC9nPgoKICA8IS0tIHF1aWV0IGdhYmxlIGRldGFpbCAtLT4KICA8cmVjdCB4PSI4NDIiIHk9IjI3MiIgd2lkdGg9IjI2IiBoZWlnaHQ9IjMxIiByeD0iNCIgZmlsbD0iI2YzZTZkMiIgb3BhY2l0eT0iLjkiLz4KICA8cGF0aCBkPSJNODQ5IDI4MSBIODYxIE04NDkgMjg3IEg4NjEgTTg0OSAyOTMgSDg2MSIgc3Ryb2tlPSIjYzliNTljIiBzdHJva2Utd2lkdGg9IjEuNCIKICAgICAgICBvcGFjaXR5PSIuOCIvPgoKICA8IS0tIGZyb250IHdpbmRvdyAtLT4KICA8cmVjdCB4PSI1NzUiIHk9IjQwNSIgd2lkdGg9IjgwIiBoZWlnaHQ9IjcwIiByeD0iNCIgZmlsbD0iI2ZmZmRmOCIvPgogIDxyZWN0IHg9IjU4MSIgeT0iNDExIiB3aWR0aD0iNjgiIGhlaWdodD0iNTgiIHJ4PSIyIiBmaWxsPSJ1cmwoI3dpbmRvd1dhcm0pIi8+CiAgPHBhdGggZD0iTTYxNSA0MTEgTCA2MTUgNDY5IE0gNTgxIDQ0MCBMIDY0OSA0NDAiIHN0cm9rZT0iI2M3YTg2ZCIgc3Ryb2tlLXdpZHRoPSIyLjQiIG9wYWNpdHk9Ii41NSIvPgoKICA8IS0tIGZyb250IGRvb3IgLS0+CiAgPHJlY3QgeD0iNjkwIiB5PSI0MTAiIHdpZHRoPSI3OCIgaGVpZ2h0PSIxNTUiIHJ4PSIzIiBmaWxsPSIjZmZmZGY4Ii8+CiAgPHJlY3QgeD0iNjk2IiB5PSI0MTYiIHdpZHRoPSI2NiIgaGVpZ2h0PSIxNDkiIHJ4PSIyIiBmaWxsPSIjYTljNmM3Ii8+CiAgPHBhdGggZD0iTTcwNCA0MzAgTCA3MDQgNTUxIE0gNzE0IDQzMCBMIDcxNCA1NTEgTSA3MjQgNDMwIEwgNzI0IDU1MSIKICAgICAgICBzdHJva2U9IiM4OWFiYWQiIHN0cm9rZS13aWR0aD0iMS4yIiBvcGFjaXR5PSIuNiIvPgogIDxyZWN0IHg9Ijc0OCIgeT0iNDkyIiB3aWR0aD0iNyIgaGVpZ2h0PSIxNiIgcng9IjMuNSIgZmlsbD0iIzZmODU4NCIvPgoKICA8IS0tIHBhdGlvIGdsYXNzIGRvb3IgLS0+CiAgPHJlY3QgeD0iODQwIiB5PSI0MDUiIHdpZHRoPSIxNTAiIGhlaWdodD0iMTYwIiByeD0iNCIgZmlsbD0iI2ZmZmRmOCIvPgogIDxyZWN0IHg9Ijg0NiIgeT0iNDExIiB3aWR0aD0iMTM4IiBoZWlnaHQ9IjE0OCIgcng9IjIiIGZpbGw9InVybCgjZ2xhc3MpIi8+CiAgPHBhdGggZD0iTTg5MiA0MTEgTCA4OTIgNTU5IE0gOTQ0IDQxMSBMIDk0NCA1NTkgTSA4NDYgNDgwIEwgOTg0IDQ4MCIKICAgICAgICBzdHJva2U9IiNhN2M0ZDEiIHN0cm9rZS13aWR0aD0iMi42IiBvcGFjaXR5PSIuNyIvPgoKICA8IS0tIGZvdW5kYXRpb24sIHN0ZXBzIGFuZCBwYXRoIC0tPgogIDxwYXRoIGQ9Ik0zMjAgNTAwIEwgNTQ1IDU2NSBMIDEwNDUgNTY1IEwgMTA0NSA1NzggTCA1NDUgNTgwIEwgMzIwIDUxNSBaIgogICAgICAgIGZpbGw9IiNkOWM5YjMiLz4KICA8cmVjdCB4PSI2NzAiIHk9IjU2NSIgd2lkdGg9IjExNiIgaGVpZ2h0PSIxMSIgcng9IjIiIGZpbGw9IiNlYWRmY2EiLz4KICA8cmVjdCB4PSI4MjgiIHk9IjU2NSIgd2lkdGg9IjE3NCIgaGVpZ2h0PSIxMSIgcng9IjIiIGZpbGw9IiNlYWRmY2EiLz4KICA8cGF0aCBkPSJNNjkwIDU4MSBMIDc5MiA1ODEgTCA4MjIgNjE4IEwgNjY0IDYxOCBaIiBmaWxsPSIjZTJkNWJmIiBvcGFjaXR5PSIuODAiLz4KICA8cGF0aCBkPSJNNTUyIDU5MCBMIDYyNiA1OTAgTCA2MzggNjA3IEwgNTQ0IDYwNyBaIiBmaWxsPSIjZDZjOGIyIiBvcGFjaXR5PSIuNTUiLz4KICA8cGF0aCBkPSJNODc2IDU5MCBMIDk0OCA1OTAgTCA5NTggNjA3IEwgODY2IDYwNyBaIiBmaWxsPSIjZDZjOGIyIiBvcGFjaXR5PSIuNTAiLz4KCiAgPCEtLSBidXNoZXMgcm9vdGVkIGF0IHRoZSBwbGludGggLS0+CiAgPGcgZmlsbD0iI2I3ZDFhOCI+CiAgICA8cGF0aCBkPSJNNTEwIDYwMCBDIDUwNCA1NzggNTIwIDU2NCA1MzggNTcyIEMgNTQ4IDU2MCA1NzAgNTYyIDU3NiA1NzggQyA1OTIgNTc0IDYwMCA1ODggNTkyIDYwMCBaIi8+CiAgICA8cGF0aCBkPSJNNTk0IDYwOCBDIDU4OCA1ODYgNjA2IDU3MyA2MjIgNTgzIEMgNjM0IDU3MyA2NTQgNTc5IDY1NiA1OTUgQyA2NzAgNTk1IDY3NCA2MDcgNjY2IDYxNSBaIi8+CiAgICA8cGF0aCBkPSJNODg4IDYwOCBDIDg4MiA1ODYgOTAwIDU3NCA5MTYgNTg0IEMgOTI4IDU3NCA5NDggNTgwIDk1MCA1OTYgQyA5NjYgNTk0IDk3MiA2MDggOTY0IDYxOCBaIi8+CiAgICA8cGF0aCBkPSJNOTQ4IDYyMiBDIDk0MiA2MDIgOTYwIDU5MCA5NzQgNjAwIEMgOTg2IDU5MCAxMDA0IDU5NiAxMDA2IDYxMiBDIDEwMjAgNjEyIDEwMjQgNjIyIDEwMTYgNjMwIFoiLz4KICA8L2c+CiAgPHBhdGggZD0iTTUyMCA1ODkgQyA1MzAgNTc4IDU0NiA1ODIgNTQ4IDU5NCBDIDU0MiA2MDAgNTI2IDYwMCA1MjAgNTg5IFoiIGZpbGw9IiNjOWRmYmQiIG9wYWNpdHk9Ii43NSIvPgogIDxwYXRoIGQ9Ik05MDYgNTk1IEMgOTE2IDU4NCA5MzQgNTg4IDkzNiA2MDAgQyA5MjggNjA2IDkxMiA2MDYgOTA2IDU5NSBaIiBmaWxsPSIjYzlkZmJkIiBvcGFjaXR5PSIuNjUiLz4KCiAgPCEtLSBzb2Z0IGhpZ2hsaWdodHMgLS0+CiAgPHBhdGggZD0iTTMyMCA1MDAgTCA1NDUgNTY1IEwgNTQ1IDU4MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmZmZGY4IiBzdHJva2Utd2lkdGg9IjEuNCIgb3BhY2l0eT0iLjM1Ii8+CiAgPHBhdGggZD0iTTEwNDUgMzUyIEwgMTA0NSA1NjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2ZmZmRmOCIgc3Ryb2tlLXdpZHRoPSIxLjQiIG9wYWNpdHk9Ii4zMCIvPgo8L3N2Zz4K" alt="" width="1200" height="590" decoding="async" fetchpriority="high">
+    </div>
+
+    <svg id="flowLayer" class="flow-layer" viewBox="0 0 806 1008" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <marker id="flow-arrow-solar" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="5" markerHeight="5" orient="auto" markerUnits="strokeWidth">
+          <path d="M1 1 L11 6 L1 11 Z" fill="#a16207"></path>
+        </marker>
+        <marker id="flow-arrow-grid" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="5" markerHeight="5" orient="auto" markerUnits="strokeWidth">
+          <path d="M1 1 L11 6 L1 11 Z" fill="#1e40af"></path>
+        </marker>
+        <marker id="flow-arrow-home" viewBox="0 0 12 12" refX="10" refY="6" markerWidth="5" markerHeight="5" orient="auto" markerUnits="strokeWidth">
+          <path d="M1 1 L11 6 L1 11 Z" fill="#c2410c"></path>
+        </marker>
+      </defs>
+      <g class="flow-group active" data-flow="solar">
+        <path class="flow-halo" d="M394.921875 163.21875 L398.9609375 163.21875 Q403 163.21875 403 167.2578125 L403 275.4855711722488"></path>
+        <path class="flow-line" marker-end="url(#flow-arrow-solar)" d="M394.921875 163.21875 L398.9609375 163.21875 Q403 163.21875 403 167.2578125 L403 275.4855711722488"></path>
+        <path class="flow-dots" d="M394.921875 163.21875 L398.9609375 163.21875 Q403 163.21875 403 167.2578125 L403 275.4855711722488"></path>
+      </g>
+      <g class="flow-group active" data-flow="grid">
+        <path class="flow-halo" d="M529.718125 225.640625 L529.718125 506.21515625 Q529.718125 512.15625 523.7770312499999 512.15625 L517.8359375 512.15625"></path>
+        <path class="flow-line" marker-end="url(#flow-arrow-grid)" d="M529.718125 225.640625 L529.718125 506.21515625 Q529.718125 512.15625 523.7770312499999 512.15625 L517.8359375 512.15625"></path>
+        <path class="flow-dots" d="M529.718125 225.640625 L529.718125 506.21515625 Q529.718125 512.15625 523.7770312499999 512.15625 L517.8359375 512.15625"></path>
+      </g>
+      <g class="flow-group active" data-flow="home">
+        <path class="flow-halo" d="M296.7028633373206 708.015625 L296.7028633373206 841.4886363636364 Q296.7028633373206 849.2015550239234 304.41578199760767 849.2015550239234 L395.2870813397129 849.2015550239234 Q403 849.2015550239234 403 856.9144736842105 L403 878.125"></path>
+        <path class="flow-line" marker-end="url(#flow-arrow-home)" d="M296.7028633373206 708.015625 L296.7028633373206 841.4886363636364 Q296.7028633373206 849.2015550239234 304.41578199760767 849.2015550239234 L395.2870813397129 849.2015550239234 Q403 849.2015550239234 403 856.9144736842105 L403 878.125"></path>
+        <path class="flow-dots" d="M296.7028633373206 708.015625 L296.7028633373206 841.4886363636364 Q296.7028633373206 849.2015550239234 304.41578199760767 849.2015550239234 L395.2870813397129 849.2015550239234 Q403 849.2015550239234 403 856.9144736842105 L403 878.125"></path>
+      </g>
+    </svg>
+
+    <button id="menuBtn" class="menu-btn" type="button" aria-label="Open plan editor" aria-expanded="false" aria-controls="planDrawer">
+      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+        <path d="M6 9h20M6 16h20M6 23h20"></path>
+      </svg>
+    </button>
+
+    <div id="homeAlert" class="home-alert hide" role="status"></div>
+
+    <div class="tiles">
+      <section class="tile tile--solar" data-card="solar" aria-label="Solar generation" data-level="green">
+        <div class="tile-icon solar-icon" id="solarIcon" data-icon="sun" aria-hidden="true">
+          <svg class="solar-icon__sun" viewBox="0 0 64 64" fill="none">
+            <g class="sun__rays" stroke="currentColor" stroke-width="3.6" stroke-linecap="round">
+              <path d="M32 4v8M32 52v8M4 32h8M52 32h8M12 12l6 6M46 46l6 6M52 12l-6 6M18 46l-6 6"></path>
+            </g>
+            <circle cx="32" cy="32" r="11.5" fill="currentColor"></circle>
+            <circle cx="28" cy="28" r="4.5" fill="#fff7d6" opacity=".35"></circle>
+          </svg>
+          <svg class="solar-icon__moon" viewBox="0 0 64 64" fill="none">
+            <path d="M40.5 7.5a23.5 23.5 0 1 0 16 40.5A25.5 25.5 0 0 1 40.5 7.5Z" fill="currentColor"></path>
+            <path d="M49 13l1.6 4.4L55 19l-4.4 1.6L49 25l-1.6-4.4L43 19l4.4-1.6L49 13Z" fill="currentColor" opacity=".55"></path>
+          </svg>
+          <svg class="solar-icon__cloud" viewBox="0 0 64 64" fill="none">
+            <path d="M17 48.5h29a10.5 10.5 0 0 0 1.2-20.9A16.5 16.5 0 0 0 17 25.7 12 12 0 0 0 17 48.5Z" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"></path>
+            <path d="M22 39h20M26 32h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".45"></path>
+          </svg>
+        </div>
+        <div class="tile-body">
+          <div class="tile-label">Solar</div>
+          <div class="tile-value"><span id="vSolar">2.14</span><span class="tile-unit">kW</span></div>
+        </div>
+        <div class="power-bars solar-bars" id="solarBars" role="meter" data-level="green" aria-label="Solar generation level" aria-valuemin="0" aria-valuemax="5" aria-valuenow="4" aria-valuetext="4 of 5 · 2.14 kW">
+          <span class="power-bar is-on" aria-hidden="true"></span>
+          <span class="power-bar is-on" aria-hidden="true"></span>
+          <span class="power-bar is-on" aria-hidden="true"></span>
+          <span class="power-bar is-on" aria-hidden="true"></span>
+          <span class="power-bar" aria-hidden="true"></span>
+        </div>
+      </section>
+
+      <section class="tile tile--grid" data-card="grid" aria-label="Grid power" data-level="green">
+        <div class="tile-icon" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <g class="grid__lines">
+              <path d="M32 4 L22 60 M32 4 L42 60"></path>
+              <path d="M27 18h10M23 32h18M18 46h28"></path>
+              <path d="M27 18 37 32 27 46 37 60 M37 18 27 32l10 14-10 14"></path>
+              <path d="M14 18h13M37 18h13M9 32h14M41 32h14M4 46h14M46 46h14"></path>
+            </g>
+          </svg>
+        </div>
+        <div class="tile-body">
+          <div class="tile-label">Grid</div>
+          <div class="tile-value"><span id="vGrid">0.36</span><span class="tile-unit">kW</span></div>
+          <div class="tile-foot" id="gridState">Importing</div>
+        </div>
+        <div class="power-bars grid-bars" id="gridBars" role="meter" data-level="green" aria-label="Grid power level" aria-valuemin="0" aria-valuemax="5" aria-valuenow="1" aria-valuetext="Importing · 1 of 5 · 0.36 kW">
+          <span class="power-bar is-on" aria-hidden="true"></span>
+          <span class="power-bar" aria-hidden="true"></span>
+          <span class="power-bar" aria-hidden="true"></span>
+          <span class="power-bar" aria-hidden="true"></span>
+          <span class="power-bar" aria-hidden="true"></span>
+        </div>
+      </section>
+
+      <section class="tile tile--home" data-card="home" aria-label="Home load" data-level="green">
+        <div class="tile-icon" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none">
+            <path class="home__roof" d="M5 31 32 7l27 24" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path class="home__body" d="M13 27v30h38V27" fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round"></path>
+            <rect class="home__window" x="27" y="38" width="10" height="19" rx="1.5" fill="#fffdf8"></rect>
+          </svg>
+        </div>
+        <div class="tile-body">
+          <div class="tile-label">Home Load</div>
+          <div class="tile-value"><span id="vHome">0.92</span><span class="tile-unit">kW</span></div>
+        </div>
+        <div class="power-bars home-bars" id="homeBars" role="meter" data-level="green" aria-label="Home load power level" aria-valuemin="0" aria-valuemax="5" aria-valuenow="1" aria-valuetext="1 of 5 · 0.92 kW">
+          <span class="power-bar is-on" aria-hidden="true"></span>
+          <span class="power-bar" aria-hidden="true"></span>
+          <span class="power-bar" aria-hidden="true"></span>
+          <span class="power-bar" aria-hidden="true"></span>
+          <span class="power-bar" aria-hidden="true"></span>
+        </div>
+      </section>
+    </div>
+
+    <section class="battery-hero" id="batteryHero" data-card="battery" aria-label="Battery state" style="--soc: 76; --battery-rgb: 56, 211, 151; --battery-ink-rgb: 22, 82, 44;">
+      <div class="battery-shell" id="batteryShell">
+        <div class="battery-cap" aria-hidden="true"></div>
+        <div class="battery-inner" aria-hidden="true">
+          <div class="battery-fill" id="batteryFill"></div>
+          <div class="battery-sheen"></div>
+        </div>
+        <div class="battery-content">
+          <div class="battery-soc"><span id="batterySoc">76</span><span class="battery-soc-unit" id="batterySocUnit">%</span></div>
+          <div class="battery-power"><span id="vBatt">-1.28</span><span class="battery-power-unit">kW</span></div>
+        </div>
+      </div>
+      <div class="battery-caption">
+        <span class="battery-caption-label">Battery</span>
+        <span class="battery-caption-value" id="batterySummary">4.80 kWh
+~3h 34m · empty 05:42</span>
+      </div>
+      <div class="live-status" id="liveStatus" data-level="live" role="status">
+        <i class="status-dot is-live" id="statusDot"></i>
+        <span id="statusText">Live</span>
+      </div>
+    </section>
+
+  </main>
+</section>
+
+
+</body></html>
